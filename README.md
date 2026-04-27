@@ -1,135 +1,105 @@
-# 📋 Sistema de Cadastro ASAP — Planejamento do Projeto
+# ASAP — Sistema de Cadastro
 
-> **Disciplina de Extensão** | Projeto voluntário para a ASAP  
-> **Período:** 21/04/2025 – 20/06/2026 (8 semanas / 2 meses)  
-> **Equipe:** Dallyla · Neci · Heloísa
-
----
-
-## 🧭 Visão Geral
-
-**Objetivo do sistema:** Criar um banco de dados de usuários/as e doadores do projeto ASAP para apoio na prestação de contas descritiva, com coleta de dados pessoais, socioeconômicos e documentos, respeitando a LGPD.
-
-**Premissa de custo zero:** toda a infraestrutura usa Google Workspace (Forms + Sheets + Drive), sem servidor próprio, sem banco de dados pago.
+## Stack
+- **Backend:** Python 3.11 + FastAPI + PostgreSQL + SQLAlchemy
+- **Frontend:** React 18 + Vite
+- **Deploy:** Railway (backend + banco) · Vercel (frontend)
 
 ---
 
-## 🛠️ Stack Escolhida e Justificativa
+## Rodando localmente
 
-| Camada | Tecnologia | Motivo |
+### Comando unico (Windows)
+
+Na raiz do projeto, rode:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run-dev.ps1
+```
+
+Isso abre dois terminais: backend em `http://127.0.0.1:8000/docs` e frontend em `http://localhost:5173`.
+
+### Backend
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate       # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+cp .env.example .env
+# edite .env com sua DATABASE_URL e SECRET_KEY
+
+uvicorn app.main:app --reload
+```
+
+Depois rode o seed para criar o primeiro usuário:
+
+```bash
+python seed.py
+```
+
+Acesse a documentação interativa da API em: http://localhost:8000/docs
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Acesse: http://localhost:5173
+
+---
+
+## Deploy no Railway (backend + banco)
+
+1. Crie conta em [railway.app](https://railway.app)
+2. **New Project → Deploy from GitHub repo** (aponte para a pasta `backend`)
+3. Adicione um serviço **PostgreSQL** no mesmo projeto
+4. Na aba **Variables** do serviço backend, adicione:
+   - `DATABASE_URL` → copie o valor gerado pelo PostgreSQL
+   - `SECRET_KEY` → gere com `python -c "import secrets; print(secrets.token_hex(32))"`
+5. Railway detecta o `Procfile` automaticamente e sobe o serviço
+6. Após o primeiro deploy, rode o seed via **Railway CLI** ou pelo terminal do serviço:
+   ```
+   python seed.py
+   ```
+
+## Deploy do frontend no Vercel
+
+1. Crie conta em [vercel.com](https://vercel.com)
+2. **New Project → Import** o repositório
+3. Defina **Root Directory** como `frontend`
+4. Adicione a variável de ambiente:
+   - `VITE_API_URL` = URL do backend no Railway (ex: `https://asap-api.up.railway.app`)
+5. Atualize `frontend/src/services/api.js`: troque `baseURL: '/api'` por `baseURL: import.meta.env.VITE_API_URL + '/api'`
+
+---
+
+## Perfis de acesso
+
+| Perfil | Permissões |
+|---|---|
+| `coordenadora` | Gerencia tudo: cria usuários, cria/edita/exclui cadastros, upload de documentos, visualiza e aprova cadastros |
+| `assistente` | Cria e edita cadastros, faz upload de documentos e visualiza cadastros (sem aprovar e sem excluir) |
+| `ti` | Visualiza todos os cadastros e aprova cadastros (sem criar, sem editar, sem upload e sem excluir) |
+
+---
+
+## Endpoints principais
+
+| Método | Rota | Descrição |
 |---|---|---|
-| **Formulário de cadastro** | Google Forms | Gratuito, sem código, acessível de qualquer dispositivo, já familiar para o público-alvo |
-| **Banco de dados** | Google Sheets | Integração nativa com Forms, exportação direta para Excel/PDF, controle de acesso por e-mail |
-| **Armazenamento de documentos** | Google Drive | Upload de fotos, PDFs e termos; organização em pastas por beneficiário |
-| **Geração de PDF** | Google Apps Script | Automação gratuita dentro do ecossistema Google; gera PDF do cadastro e envia por e-mail |
-| **Controle de acesso** | Google Workspace (compartilhamento) | Permissões granulares: coordenadora, assistente social e TI — sem custo extra |
-| **Notificações** | Apps Script + Gmail API | E-mail automático de confirmação após cadastro e alerta para aprovação |
-| **Interface de gestão (MVP web)** | HTML + CSS + JS puro | Página estática hospedada no GitHub Pages (grátis) que consome a Sheets via API pública para visualização |
-
-**Por que não usar banco de dados tradicional?**  
-Um sistema com Node/Express + PostgreSQL exigiria hospedagem paga, manutenção de servidor e conhecimento técnico contínuo da equipe da ASAP. O ecossistema Google resolve o problema com custo zero, sem deixar dados dependentes de uma pessoa só, e com ferramentas que a coordenação já sabe usar.
-
----
-
-## 👥 Papéis da Equipe
-
-| Pessoa | Papel principal |
-|---|---|
-| **Dallyla** | Tech Lead & Arquitetura — decisões técnicas, Apps Script, integração Sheets/Drive, deploy |
-| **Neci** | UX & Formulários — design do formulário, validações, fluxo do usuário, documentação de uso |
-| **Heloísa** | Dados & Conformidade — estrutura dos campos, LGPD, testes de cadastro, treinamento da equipe ASAP |
-
----
-
-## 🗓️ Sprints
-
-### Sprint 0 — Kickoff (21/04 – 27/04)
-**Objetivo:** alinhar escopo, montar infraestrutura base e distribuir tarefas.
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Criar a pasta principal no Google Drive; criar a planilha-mãe no Sheets com as abas: `Cadastros`, `Pendentes`, `Log`; configurar permissões de acesso para coordenadora, assistente social e TI |
-| **Neci** | Mapear todos os campos obrigatórios do levantamento de requisitos; rascunhar wireframe do formulário no Google Forms (sem publicar ainda) |
-| **Heloísa** | Levantar quais dados são sensíveis segundo a LGPD (raça/cor, renda, PCD, gênero); redigir primeira versão do Termo de Uso de Imagem e Termo LGPD em Google Docs |
-
-**Entrega ao final:** estrutura de pastas criada, campos mapeados, termos em rascunho.
-
----
-
-### Sprint 1 — Formulário e Campos (28/04 – 04/05)
-**Objetivo:** construir o formulário completo e validar com a equipe ASAP.
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Publicar o Google Forms conectado à planilha; configurar seções do formulário (dados pessoais, socioeconômicos, encaminhamento); testar envio e recebimento na Sheets |
-| **Neci** | Definir ordem lógica dos campos no formulário; escrever as instruções/textos de ajuda de cada campo; criar seção de upload de documentos (foto, comprovante de endereço, RG, termos) via Drive |
-| **Heloísa** | Revisar campos sensíveis (raça/cor, PCD, identidade de gênero, renda) e garantir linguagem adequada; conferir se todos os campos do levantamento de requisitos estão presentes; validar o termo LGPD com a coordenação |
-
-**Entrega ao final:** formulário publicado e funcional, validado pela equipe ASAP.
-
----
-
-### Sprint 2 — Automações e Fluxo de Aprovação (05/05 – 18/05)
-**Objetivo:** automatizar o fluxo pós-cadastro (e-mail de confirmação, alerta de aprovação, geração de PDF).
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Desenvolver script em Google Apps Script para: (1) enviar e-mail de confirmação ao cadastrado; (2) mover linha para aba `Pendentes` até aprovação; (3) gerar PDF do cadastro formatado e salvar no Drive |
-| **Neci** | Criar template visual do PDF do cadastro (layout, logo ASAP, campos organizados); escrever o texto do e-mail de confirmação e do alerta para a coordenadora |
-| **Heloísa** | Testar fluxo completo: preencher formulário → verificar Sheets → checar e-mail → verificar PDF gerado; documentar bugs e melhorias; validar com assistente social da ASAP |
-
-**Entrega ao final:** automação funcional de ponta a ponta testada com dados reais de teste.
-
----
-
-### Sprint 3 — Prevenção de Duplicatas e Painel (19/05 – 01/06)
-**Objetivo:** implementar checagem de CPF duplicado e painel de visualização para a gestão.
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Implementar lógica de detecção de CPF duplicado via Apps Script (verificar CPF na planilha antes de confirmar cadastro; alertar por e-mail se duplicata detectada); publicar MVP do painel web (GitHub Pages) |
-| **Neci** | Prototipar e finalizar o painel de visualização (lista de cadastros, filtros por status: ativo/pendente, busca por nome/CPF); garantir que o painel é acessível em dispositivos móveis |
-| **Heloísa** | Testar casos de borda: CPF duplicado, campos faltando, upload sem arquivo; criar manual de uso do sistema para a coordenação da ASAP (Google Docs, passo a passo com prints) |
-
-**Entrega ao final:** duplicatas bloqueadas, painel web funcionando, manual de uso pronto.
-
----
-
-### Sprint 4 — Exportação, Testes Finais e Entrega (02/06 – 20/06)
-**Objetivo:** finalizar exportação de dados, ajustes finais, treinar a equipe ASAP e entregar.
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Implementar exportação para Excel e PDF via Apps Script (botão no painel ou script agendado); garantir backup automático semanal da planilha; escrever documentação técnica do sistema |
-| **Neci** | Aplicar feedbacks de UX da equipe ASAP; ajustar textos do formulário e e-mails conforme necessário; preparar apresentação final do projeto (slides) |
-| **Heloísa** | Conduzir sessão de treinamento com a equipe ASAP (coordenadora + assistente social); coletar feedback pós-treinamento; garantir que o sistema está em conformidade com LGPD na versão final |
-
-**Entrega ao final:** sistema entregue, equipe ASAP treinada, documentação completa, apresentação da disciplina pronta.
-
----
-
-## 📦 Artefatos de Entrega
-
-- [ ] Google Forms publicado e conectado à Sheets
-- [ ] Planilha com abas `Cadastros`, `Pendentes`, `Log`
-- [ ] Script de automação (confirmação, aprovação, PDF)
-- [ ] Painel web de visualização (GitHub Pages)
-- [ ] Termos LGPD e de Uso de Imagem
-- [ ] Manual de uso para a ASAP
-- [ ] Documentação técnica do sistema
-- [ ] Apresentação final da disciplina
-
----
-
-## ⚠️ Riscos e Mitigações
-
-| Risco | Mitigação |
-|---|---|
-| Equipe ASAP sem conta Google | Criar conta institucional gratuita no início da Sprint 0 |
-| Limite de respostas do Forms | Sheets suporta até 5 milhões de células — sem risco para o volume do projeto |
-| Perda de dados | Habilitar histórico de versões no Sheets + backup manual na Sprint 4 |
-| LGPD | Acesso restrito, termos assinados digitalmente, dados sensíveis com permissão diferenciada |
-
----
-
-*Documento gerado em 17/04/2026 · Projeto de Extensão Universitária*
+| POST | `/api/auth/token` | Login |
+| GET | `/api/auth/me` | Usuário logado |
+| POST | `/api/auth/usuarios` | Criar usuário (somente coordenadora) |
+| GET | `/api/cadastros` | Listar (com filtros) |
+| POST | `/api/cadastros` | Criar cadastro |
+| GET | `/api/cadastros/{id}` | Detalhe |
+| PATCH | `/api/cadastros/{id}` | Editar |
+| DELETE | `/api/cadastros/{id}` | Excluir cadastro (somente coordenadora) |
+| POST | `/api/cadastros/{id}/aprovar` | Aprovar |
+| GET | `/api/cadastros/{id}/pdf` | Baixar PDF |
+| POST | `/api/cadastros/{id}/documentos/{tipo}` | Upload de documento |
