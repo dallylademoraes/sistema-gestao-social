@@ -17,29 +17,55 @@ Na raiz do projeto, rode:
 powershell -ExecutionPolicy Bypass -File .\run-dev.ps1
 ```
 
-Isso abre dois terminais: backend em `http://127.0.0.1:8000/docs` e frontend em `http://localhost:5173`.
+Isso abre dois terminais: backend em `http://127.0.0.1:8000/docs` e frontend em `http://localhost:5173`. Se ainda não existir `backend/.env`, o script copia `backend/.env.example` para `backend/.env`.
+
+O `run-dev.ps1` **não** executa o seed. Na **primeira vez**, depois que o backend estiver no ar, abra um terminal na pasta `backend` (com o `venv` ativado) e rode `python seed.py` — veja [Primeiro acesso (login na interface)](#primeiro-acesso-login-na-interface).
+
+### Primeiro acesso (login na interface)
+
+Siga esta ordem na primeira máquina ou banco novo:
+
+1. **Configure o ambiente** — Garanta `backend/.env` com `DATABASE_URL` e `SECRET_KEY` (o `run-dev.ps1` pode criar o `.env` a partir de `.env.example`). Com SQLite no exemplo local, não é obrigatório ter PostgreSQL instalado.
+2. **Suba o backend pelo menos uma vez** — Ao iniciar o Uvicorn, a aplicação importa `app.main` e o SQLAlchemy **cria as tabelas** no banco (`create_all`). Sem esse passo, o seed pode falhar por tabela inexistente.
+3. **Rode o seed (obrigatório para existir usuário de login)** — No diretório `backend`, com o ambiente virtual ativo:
+   ```bash
+   python seed.py
+   ```
+   - Se aparecer `Usuário criado: admin@asap.org / troque-essa-senha`, o primeiro usuário coordenadora foi criado.
+   - Se aparecer `Usuário já existe.`, a conta já estava cadastrada; use as credenciais abaixo ou redefina a senha pela aplicação.
+4. **Acesse o frontend** em `http://localhost:5173` e faça login na tela de entrada.
+
+**Credenciais padrão após o seed (ambiente de desenvolvimento):**
+
+| Campo   | Valor                 |
+|---------|-----------------------|
+| E-mail  | `admin@asap.org`      |
+| Senha   | `troque-essa-senha`   |
+
+Em produção, troque essa senha assim que possível (ou crie outro usuário e desative o admin padrão).
 
 ### Backend
 
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate       # Windows: venv\Scripts\activate
+source venv/bin/activate       # Windows: .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-cp .env.example .env
-# edite .env com sua DATABASE_URL e SECRET_KEY
+cp .env.example .env           # se ainda não tiver .env; ajuste DATABASE_URL se usar PostgreSQL
+# edite .env: SECRET_KEY obrigatória; DATABASE_URL conforme o banco
 
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload  # primeiro start cria as tabelas no banco
 ```
 
-Depois rode o seed para criar o primeiro usuário:
+Em outro terminal (com o mesmo `venv`):
 
 ```bash
-python seed.py
+cd backend
+python seed.py                 # cria o usuário inicial; rode uma vez por banco novo
 ```
 
-Acesse a documentação interativa da API em: http://localhost:8000/docs
+Documentação interativa: `http://127.0.0.1:8000/docs` (ou `http://localhost:8000/docs`).
 
 ### Frontend
 
@@ -49,7 +75,7 @@ npm install
 npm run dev
 ```
 
-Acesse: http://localhost:5173
+Acesse: `http://localhost:5173` e use o login descrito em [Primeiro acesso (login na interface)](#primeiro-acesso-login-na-interface).
 
 ---
 
@@ -66,6 +92,7 @@ Acesse: http://localhost:5173
    ```
    python seed.py
    ```
+7. O seed cria o mesmo usuário inicial que no ambiente local. Para testar o login: **e-mail** `admin@asap.org`, **senha** `troque-essa-senha` (detalhes e avisos em [Primeiro acesso (login na interface)](#primeiro-acesso-login-na-interface)). Altere a senha em produção.
 
 ## Deploy do frontend no Vercel
 

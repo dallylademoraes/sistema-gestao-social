@@ -82,6 +82,15 @@ def _login_key(prefixo: str, valor: Optional[str]) -> str:
     return f"{prefixo}:{(valor or 'desconhecido').strip().lower()}"
 
 
+def _utc_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    """SQLite devolve DateTime sem tzinfo; unifica com agora em UTC para comparacoes."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _throttle_atual(db: Session, identifier: str) -> LoginThrottle:
     row = db.query(LoginThrottle).filter(LoginThrottle.identifier == identifier).first()
     if not row:
@@ -98,8 +107,9 @@ def _limpar_throttle(db: Session, identifier: str) -> None:
 
 
 def _bloqueio_ativo(row: LoginThrottle, agora: datetime) -> Optional[int]:
-    if row.locked_until and row.locked_until > agora:
-        return max(1, int((row.locked_until - agora).total_seconds()))
+    locked = _utc_aware(row.locked_until)
+    if locked and locked > agora:
+        return max(1, int((locked - agora).total_seconds()))
     return None
 
 
@@ -109,7 +119,7 @@ def _registrar_falha_login(db: Session, identifier: str, agora: datetime) -> Non
     bloqueio_minutos = int(getattr(settings, "LOGIN_LOCK_MINUTES", 15))
 
     row = _throttle_atual(db, identifier)
-    janela_inicio = row.window_start
+    janela_inicio = _utc_aware(row.window_start)
     if janela_inicio is None or (agora - janela_inicio) > timedelta(minutes=janela_minutos):
         row.attempts = 0
         row.window_start = agora
