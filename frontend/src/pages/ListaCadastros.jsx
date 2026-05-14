@@ -80,7 +80,7 @@ export default function ListaCadastros() {
           <option value="false">Não</option>
         </select>
         <select value={lgpd} onChange={(e) => setLgpd(e.target.value)} className="form-select" style={{ width: 'auto' }}>
-          <option value="">LGPD</option>
+          <option value="">Termos</option>
           <option value="true">Concluído</option>
           <option value="false">Pendente</option>
         </select>
@@ -98,7 +98,7 @@ export default function ListaCadastros() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--surface-subtle)' }}>
-                {['Nome', 'CPF', 'Cidade/UF', 'Gênero', 'PCD', 'LGPD', 'Status LGPD', 'Status', ''].map((h) => (
+                {['Nome', 'CPF', 'Cidade/UF', 'Gênero', 'PCD', 'Termos', 'Status', ''].map((h) => (
                   <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontWeight: 600, fontSize: 11, color: 'var(--text-soft)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
                 ))}
               </tr>
@@ -123,7 +123,6 @@ export default function ListaCadastros() {
                       {c.lgpd_concluido ? 'Ok' : 'Pendente'}
                     </span>
                   </td>
-                  <td style={{ padding: '11px 14px', color: 'var(--text-muted)' }}>{c.status_lgpd || 'pendente'}</td>
                   <td style={{ padding: '11px 14px' }}>
                     <span style={{ ...badge[c.status], padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 500 }}>
                       {c.status}

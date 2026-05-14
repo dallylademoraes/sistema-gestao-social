@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+import base64
 import os
 import re
 import shutil
@@ -9,24 +10,22 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 
 from app.db.session import get_db
 from app.models.cadastro import Cadastro
 from app.models.cadastro_lgpd import CadastroLGPD
-from app.models.consentimento_lgpd import ConsentimentoLGPD
 from app.models.usuario import Usuario
 from app.schemas.cadastro import (
     CadastroCreate,
     CadastroUpdate,
     CadastroOut,
-    CadastroLGPDUpdate,
-    ConsentimentoLGPDCreate,
-    ConsentimentoLGPDOut,
+    CadastroTermoPreviewRequest,
     ExcluirCadastroPayload,
 )
 from app.core.security import usuario_atual, requer_perfil
 from app.services.pdf import gerar_pdf_cadastro
+from app.services.pdf_termos import gerar_pdf_termo_acordo
 from app.services.audit import registrar_auditoria
 from app.services.arquivos import (
     validar_arquivo_upload,
@@ -34,6 +33,7 @@ from app.services.arquivos import (
     gerar_url_assinada_download,
     verificar_token_download,
     responder_download,
+    header_content_disposition_attachment,
 )
 
 router = APIRouter(prefix="/cadastros", tags=["cadastros"])
@@ -42,7 +42,6 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 STATUS_VALIDOS = {"pendente", "ativo", "inativo"}
-STATUS_LGPD_VALIDOS = {"pendente", "consentido", "revogado"}
 
 
 def _somente_digitos(value: str) -> str:
@@ -65,6 +64,32 @@ def _cpf_valido(cpf: str) -> bool:
     d2 = 0 if d2 == 10 else d2
 
     return digits[-2:] == f"{d1}{d2}"
+
+
+def _sanitizar_nome_titular_ficheiro(nome: str) -> str:
+    """Segmento seguro para usar no nome do ficheiro (Windows / HTTP)."""
+    s = (nome or "").strip()
+    if not s:
+        return "cadastro"
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", s)
+    s = re.sub(r"\s+", "_", s)
+    s = re.sub(r"^[.\s_-]+|[.\s_-]+$", "", s)
+    return (s or "cadastro")[:80]
+
+
+def _nome_pdf_previa_termo(nome_titular: str, tipo: str) -> str:
+    base = _sanitizar_nome_titular_ficheiro(nome_titular)
+    rotulo = "Termo_LGPD" if tipo == "lgpd" else "Termo_uso_imagem"
+    return f"{base}_previa_{rotulo}.pdf"
+
+
+def _nome_pdf_termo_armazenado(nome_titular: str, tipo_doc: str) -> str:
+    base = _sanitizar_nome_titular_ficheiro(nome_titular)
+    if tipo_doc == "termo_lgpd":
+        return f"{base}_Termo_LGPD.pdf"
+    if tipo_doc == "termo_imagem":
+        return f"{base}_Termo_uso_imagem.pdf"
+    raise ValueError("tipo_doc inválido para nome de termo")
 
 
 def _formatar_cpf(cpf: str) -> str:
@@ -106,21 +131,51 @@ def _obter_lgpd(db: Session, cadastro_id: int) -> Optional[CadastroLGPD]:
     return db.query(CadastroLGPD).filter(CadastroLGPD.cadastro_id == cadastro_id).first()
 
 
-def _listar_consentimentos(db: Session, cadastro_id: int) -> list[ConsentimentoLGPD]:
-    return (
-        db.query(ConsentimentoLGPD)
-        .filter(ConsentimentoLGPD.cadastro_id == cadastro_id)
-        .order_by(ConsentimentoLGPD.criado_em.desc())
-        .all()
-    )
+def _decode_assinatura_png(raw: str) -> bytes:
+    s = (raw or "").strip()
+    if not s:
+        raise HTTPException(status_code=400, detail="Assinatura obrigatória")
+    if s.startswith("data:"):
+        parts = s.split(",", 1)
+        if len(parts) != 2:
+            raise HTTPException(status_code=400, detail="Formato de assinatura inválido")
+        s = parts[1]
+    try:
+        out = base64.b64decode(s, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Assinatura em base64 inválida") from exc
+    if len(out) > 500_000:
+        raise HTTPException(status_code=400, detail="Assinatura excede o tamanho máximo permitido")
+    if not out.startswith(b"\x89PNG"):
+        raise HTTPException(status_code=400, detail="A assinatura deve ser uma imagem PNG")
+    return out
 
 
-def _validar_requisitos_aprovacao(cadastro: Cadastro, lgpd: CadastroLGPD) -> None:
+def _cadastro_para_preview(body: CadastroTermoPreviewRequest) -> Cadastro:
+    d = body.model_dump(exclude={"tipo", "assinatura_base64"})
+    c = Cadastro(**d)
+    c.id = 0
+    c.status = "pendente"
+    return c
+
+
+def _gerar_pdfs_termos_e_anexar(c: Cadastro, png: bytes) -> None:
+    agora = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    pdf_lgpd = gerar_pdf_termo_acordo(c, tipo="lgpd", imagem_png=png, quando_iso=agora)
+    nome_lgpd = f"{uuid.uuid4().hex}.pdf"
+    c.termo_lgpd_url = salvar_arquivo_externo(nome_lgpd, pdf_lgpd, "application/pdf")
+    pdf_img = gerar_pdf_termo_acordo(c, tipo="imagem", imagem_png=png, quando_iso=agora)
+    nome_img = f"{uuid.uuid4().hex}.pdf"
+    c.termo_imagem_url = salvar_arquivo_externo(nome_img, pdf_img, "application/pdf")
+
+
+def _validar_requisitos_aprovacao(cadastro: Cadastro) -> None:
     docs_obrigatorios = {
         "foto": cadastro.foto_url,
         "comprovante de residência": cadastro.comprovante_residencia_url,
         "documento pessoal": cadastro.documento_pessoal_url,
         "termo LGPD": cadastro.termo_lgpd_url,
+        "termo de uso de imagem": cadastro.termo_imagem_url,
     }
     faltantes = [nome for nome, valor in docs_obrigatorios.items() if not valor]
     if faltantes:
@@ -135,15 +190,11 @@ def _validar_requisitos_aprovacao(cadastro: Cadastro, lgpd: CadastroLGPD) -> Non
     _validar_data_nascimento(cadastro.data_nascimento)
     if _idade_em_anos(cadastro.data_nascimento) < 16:
         raise HTTPException(status_code=400, detail="Idade mínima para aprovação é 16 anos")
-    if not lgpd.base_legal:
-        raise HTTPException(status_code=400, detail="Base legal LGPD obrigatória para aprovação")
-    if lgpd.status_lgpd != "consentido":
-        raise HTTPException(status_code=400, detail="Não é possível aprovar sem consentimento LGPD ativo")
 
 
 def _montar_saida_cadastro(db: Session, cadastro: Cadastro) -> CadastroOut:
     lgpd = _obter_lgpd(db, cadastro.id)
-    consentimentos = _listar_consentimentos(db, cadastro.id)
+    tem_termos = bool(cadastro.termo_lgpd_url) and bool(cadastro.termo_imagem_url)
 
     def url_documento(tipo: str, ref: Optional[str]) -> Optional[str]:
         return gerar_url_assinada_download(cadastro.id, tipo, ref) if ref else None
@@ -170,19 +221,19 @@ def _montar_saida_cadastro(db: Session, cadastro: Cadastro) -> CadastroOut:
         encaminhamento_realizado=cadastro.encaminhamento_realizado,
         observacoes=cadastro.observacoes,
         status=cadastro.status,
-        lgpd_concluido=bool(cadastro.termo_lgpd_url) and (lgpd.status_lgpd == "consentido" if lgpd else False),
+        lgpd_concluido=tem_termos,
         criado_em=cadastro.criado_em,
         foto_url=url_documento("foto", cadastro.foto_url),
         comprovante_residencia_url=url_documento("comprovante", cadastro.comprovante_residencia_url),
         documento_pessoal_url=url_documento("documento", cadastro.documento_pessoal_url),
         termo_imagem_url=url_documento("termo_imagem", cadastro.termo_imagem_url),
         termo_lgpd_url=url_documento("termo_lgpd", cadastro.termo_lgpd_url),
-        base_legal=lgpd.base_legal if lgpd else None,
-        status_lgpd=lgpd.status_lgpd if lgpd else "pendente",
+        base_legal=None,
+        status_lgpd=None,
         retencao_ate=lgpd.retencao_ate if lgpd else None,
         excluido_em=lgpd.excluido_em if lgpd else None,
         motivo_exclusao=lgpd.motivo_exclusao if lgpd else None,
-        consentimentos=[ConsentimentoLGPDOut.model_validate(i) for i in consentimentos],
+        consentimentos=[],
     )
 
 
@@ -210,10 +261,23 @@ def listar(
     if genero:
         q = q.filter(Cadastro.identidade_genero == genero)
     if lgpd_concluido is not None:
+        tem_ambos = and_(
+            Cadastro.termo_lgpd_url.isnot(None),
+            Cadastro.termo_lgpd_url != "",
+            Cadastro.termo_imagem_url.isnot(None),
+            Cadastro.termo_imagem_url != "",
+        )
         if lgpd_concluido:
-            q = q.filter(and_(Cadastro.termo_lgpd_url.is_not(None), Cadastro.termo_lgpd_url != ""))
+            q = q.filter(tem_ambos)
         else:
-            q = q.filter((Cadastro.termo_lgpd_url.is_(None)) | (Cadastro.termo_lgpd_url == ""))
+            q = q.filter(
+                or_(
+                    Cadastro.termo_lgpd_url.is_(None),
+                    Cadastro.termo_lgpd_url == "",
+                    Cadastro.termo_imagem_url.is_(None),
+                    Cadastro.termo_imagem_url == "",
+                )
+            )
     itens = q.order_by(Cadastro.criado_em.desc()).offset(skip).limit(limit).all()
     return [_montar_saida_cadastro(db, c) for c in itens]
 
@@ -227,24 +291,54 @@ def criar(body: CadastroCreate, request: Request, db: Session = Depends(get_db),
     cpf_formatado = _formatar_cpf(body.cpf)
     if db.query(Cadastro).filter(Cadastro.cpf.in_([cpf_formatado, _somente_digitos(body.cpf), body.cpf])).first():
         raise HTTPException(status_code=400, detail="CPF já cadastrado")
-    dados = body.model_dump()
+    png = _decode_assinatura_png(body.assinatura_base64)
+    dados = body.model_dump(exclude={"aceite_termo_lgpd", "aceite_termo_imagem", "assinatura_base64"})
     dados["cpf"] = cpf_formatado
     c = Cadastro(**dados)
     db.add(c)
+    db.flush()
+    try:
+        _gerar_pdfs_termos_e_anexar(c, png)
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.")
     db.commit()
     db.refresh(c)
-    _obter_ou_criar_lgpd(db, c.id)
-    db.commit()
     registrar_auditoria(
         db,
         action="cadastro.create",
         entity_type="cadastro",
         entity_id=c.id,
-        details=f"cpf={c.cpf};status={c.status}",
+        details=f"cpf={c.cpf};status={c.status};termos_gerados=1",
         actor=atual,
         ip_address=request.client.host if request.client else None,
     )
     return _montar_saida_cadastro(db, c)
+
+
+@router.post("/preview-termo", response_class=Response)
+def preview_termo(
+    body: CadastroTermoPreviewRequest,
+    _db: Session = Depends(get_db),
+    _: Usuario = Depends(requer_perfil("coordenadora", "assistente")),
+):
+    if not _cpf_valido(body.cpf):
+        raise HTTPException(status_code=400, detail="CPF inválido")
+    _validar_data_nascimento(body.data_nascimento)
+    png: Optional[bytes] = None
+    if body.assinatura_base64 and body.assinatura_base64.strip():
+        try:
+            png = _decode_assinatura_png(body.assinatura_base64)
+        except HTTPException:
+            png = None
+    c = _cadastro_para_preview(body)
+    pdf = gerar_pdf_termo_acordo(c, tipo=body.tipo, imagem_png=png, quando_iso=None)
+    nome = _nome_pdf_previa_termo(body.nome, body.tipo)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": header_content_disposition_attachment(nome)},
+    )
 
 
 @router.get("/{id}", response_model=CadastroOut)
@@ -298,8 +392,7 @@ def aprovar(id: int, request: Request, db: Session = Depends(get_db),
     c = db.query(Cadastro).filter(Cadastro.id == id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Não encontrado")
-    lgpd = _obter_ou_criar_lgpd(db, c.id)
-    _validar_requisitos_aprovacao(c, lgpd)
+    _validar_requisitos_aprovacao(c)
     c.status = "ativo"
     c.aprovado_por_id = usuario.id
     db.commit()
@@ -358,8 +451,6 @@ async def upload_documento(id: int, tipo: str, arquivo: UploadFile = File(...),
         "foto": "foto_url",
         "comprovante": "comprovante_residencia_url",
         "documento": "documento_pessoal_url",
-        "termo_imagem": "termo_imagem_url",
-        "termo_lgpd": "termo_lgpd_url",
     }
     if tipo not in campos_validos:
         raise HTTPException(status_code=400, detail=f"Tipo inválido. Use: {list(campos_validos)}")
@@ -393,93 +484,11 @@ def baixar_documento(id: int, tipo: str, token: str, db: Session = Depends(get_d
         raise HTTPException(status_code=401, detail="Token de download não confere com o arquivo atual")
 
     content_type = mimetypes.guess_type(storage_ref)[0] or "application/octet-stream"
-    filename = os.path.basename(storage_ref)
+    if tipo in ("termo_lgpd", "termo_imagem"):
+        filename = _nome_pdf_termo_armazenado(c.nome or "", tipo)
+    else:
+        filename = os.path.basename(storage_ref)
     return responder_download(storage_ref, filename, content_type)
-
-
-@router.patch("/{id}/lgpd", response_model=CadastroOut)
-def atualizar_lgpd(
-    id: int,
-    body: CadastroLGPDUpdate,
-    request: Request,
-    db: Session = Depends(get_db),
-    atual: Usuario = Depends(requer_perfil("coordenadora", "assistente")),
-):
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
-    if not c:
-        raise HTTPException(status_code=404, detail="Não encontrado")
-
-    lgpd = _obter_ou_criar_lgpd(db, c.id)
-    dados = body.model_dump(exclude_unset=True)
-    if "status_lgpd" in dados and dados["status_lgpd"] not in STATUS_LGPD_VALIDOS:
-        raise HTTPException(status_code=400, detail=f"Status LGPD inválido. Use: {sorted(STATUS_LGPD_VALIDOS)}")
-
-    for campo, valor in dados.items():
-        setattr(lgpd, campo, valor)
-
-    db.commit()
-    registrar_auditoria(
-        db,
-        action="cadastro.lgpd.update",
-        entity_type="cadastro",
-        entity_id=c.id,
-        details=f"campos={','.join(sorted(dados.keys()))}",
-        actor=atual,
-        ip_address=request.client.host if request.client else None,
-    )
-    return _montar_saida_cadastro(db, c)
-
-
-@router.get("/{id}/lgpd/consentimentos", response_model=List[ConsentimentoLGPDOut])
-def listar_consentimentos(
-    id: int,
-    db: Session = Depends(get_db),
-    _: Usuario = Depends(usuario_atual),
-):
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
-    if not c:
-        raise HTTPException(status_code=404, detail="Não encontrado")
-    return _listar_consentimentos(db, c.id)
-
-
-@router.post("/{id}/lgpd/consentimentos", response_model=CadastroOut)
-def registrar_consentimento(
-    id: int,
-    body: ConsentimentoLGPDCreate,
-    request: Request,
-    db: Session = Depends(get_db),
-    atual: Usuario = Depends(requer_perfil("coordenadora", "assistente")),
-):
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
-    if not c:
-        raise HTTPException(status_code=404, detail="Não encontrado")
-    if body.tipo not in {"concedido", "revogado"}:
-        raise HTTPException(status_code=400, detail="Tipo inválido. Use: concedido ou revogado")
-
-    lgpd = _obter_ou_criar_lgpd(db, c.id)
-    evento = ConsentimentoLGPD(
-        cadastro_id=c.id,
-        tipo=body.tipo,
-        base_legal=body.base_legal,
-        observacao=body.observacao,
-        registrado_por_id=atual.id,
-    )
-    db.add(evento)
-
-    lgpd.base_legal = body.base_legal
-    lgpd.status_lgpd = "consentido" if body.tipo == "concedido" else "revogado"
-
-    db.commit()
-    registrar_auditoria(
-        db,
-        action="cadastro.lgpd.consent",
-        entity_type="cadastro",
-        entity_id=c.id,
-        details=f"tipo={body.tipo};base_legal={body.base_legal}",
-        actor=atual,
-        ip_address=request.client.host if request.client else None,
-    )
-    return _montar_saida_cadastro(db, c)
 
 
 @router.post("/{id}/lgpd/excluir", response_model=CadastroOut)

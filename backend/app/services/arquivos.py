@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
+import re
 import uuid
+from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response
@@ -155,6 +157,15 @@ def gerar_url_assinada_download(cadastro_id: int, tipo: str, storage_ref: str) -
     return f"/api/cadastros/{cadastro_id}/documentos/{tipo}/baixar?token={token}"
 
 
+def header_content_disposition_attachment(filename: str) -> str:
+    """Cabeçalho Content-Disposition com suporte a caracteres não ASCII (RFC 5987)."""
+    fn = (filename or "documento.pdf").strip() or "documento.pdf"
+    ascii_fn = re.sub(r"[^\x20-\x7E]", "_", fn).replace('"', "_").strip() or "documento.pdf"
+    if len(ascii_fn) > 200:
+        ascii_fn = ascii_fn[:200]
+    return f"attachment; filename=\"{ascii_fn}\"; filename*=UTF-8''{quote(fn, safe='')}"
+
+
 def verificar_token_download(token: str, cadastro_id: int, tipo: str) -> str:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
@@ -178,7 +189,11 @@ def responder_download(storage_ref: str, filename: str, content_type: str) -> Re
         client = _s3_client()
         url = client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": bucket, "Key": storage_ref},
+            Params={
+                "Bucket": bucket,
+                "Key": storage_ref,
+                "ResponseContentDisposition": header_content_disposition_attachment(filename),
+            },
             ExpiresIn=900,
         )
         return RedirectResponse(url=url, status_code=302)
@@ -199,6 +214,7 @@ def responder_download(storage_ref: str, filename: str, content_type: str) -> Re
             account_key=service.credential.account_key,
             permission=BlobSasPermissions(read=True),
             expiry=datetime.now(timezone.utc) + timedelta(minutes=15),
+            content_disposition=header_content_disposition_attachment(filename),
         )
         return RedirectResponse(url=f"{blob.url}?{sas}", status_code=302)
 

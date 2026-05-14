@@ -53,4 +53,4 @@ class Cadastro(Base):
 
     @property
     def lgpd_concluido(self) -> bool:
-        return bool(self.termo_lgpd_url)
+        return bool(self.termo_lgpd_url) and bool(self.termo_imagem_url)

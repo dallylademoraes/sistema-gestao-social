@@ -39,9 +39,10 @@ export const cadastros = {
   buscar: (id) => api.get(`/cadastros/${id}`),
   criar: (data) => api.post('/cadastros/', data),
   atualizar: (id, data) => api.patch(`/cadastros/${id}`, data),
-  atualizarLgpd: (id, data) => api.patch(`/cadastros/${id}/lgpd`, data),
-  listarConsentimentosLgpd: (id) => api.get(`/cadastros/${id}/lgpd/consentimentos`),
-  registrarConsentimentoLgpd: (id, data) => api.post(`/cadastros/${id}/lgpd/consentimentos`, data),
+  previewTermo: async (data) => {
+    const r = await api.post('/cadastros/preview-termo', data, { responseType: 'blob' })
+    return r.data
+  },
   excluirLgpd: (id, motivo) => api.post(`/cadastros/${id}/lgpd/excluir`, { motivo }),
   excluir: (id) => api.delete(`/cadastros/${id}`),
   aprovar: (id) => api.post(`/cadastros/${id}/aprovar`),

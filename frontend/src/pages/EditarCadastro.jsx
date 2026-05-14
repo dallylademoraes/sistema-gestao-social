@@ -40,23 +40,9 @@ export default function EditarCadastro() {
   const navigate = useNavigate()
   const { usuario } = useAuth()
   const [erro, setErro] = useState('')
-  const [erroLgpd, setErroLgpd] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [carregando, setCarregando] = useState(true)
-  const [salvandoLgpd, setSalvandoLgpd] = useState(false)
-  const [registrandoConsentimento, setRegistrandoConsentimento] = useState(false)
   const [form, setForm] = useState(null)
-  const [lgpdForm, setLgpdForm] = useState({
-    base_legal: 'consentimento',
-    status_lgpd: 'pendente',
-    retencao_ate: '',
-  })
-  const [consentimentos, setConsentimentos] = useState([])
-  const [consentimentoForm, setConsentimentoForm] = useState({
-    tipo: 'concedido',
-    base_legal: 'consentimento',
-    observacao: '',
-  })
   const podeCriarOuEditarCadastro = ['coordenadora', 'assistente'].includes(usuario?.perfil)
 
   if (!podeCriarOuEditarCadastro) {
@@ -93,13 +79,6 @@ export default function EditarCadastro() {
       encaminhamento_realizado: c.encaminhamento_realizado ? 'Sim' : 'Não',
       observacoes: c.observacoes || '',
     })
-    setLgpdForm({
-      base_legal: c.base_legal || 'consentimento',
-      status_lgpd: c.status_lgpd || 'pendente',
-      retencao_ate: c.retencao_ate ? String(c.retencao_ate).slice(0, 16) : '',
-    })
-    setConsentimentos(c.consentimentos || [])
-    setConsentimentoForm((prev) => ({ ...prev, base_legal: c.base_legal || prev.base_legal }))
   }
 
   useEffect(() => {
@@ -155,37 +134,6 @@ export default function EditarCadastro() {
     }
   }
 
-  const salvarLgpd = async () => {
-    setErroLgpd('')
-    setSalvandoLgpd(true)
-    try {
-      await api.atualizarLgpd(id, {
-        base_legal: lgpdForm.base_legal || undefined,
-        status_lgpd: lgpdForm.status_lgpd || undefined,
-        retencao_ate: lgpdForm.retencao_ate ? `${lgpdForm.retencao_ate}:00` : null,
-      })
-      await carregarCadastro()
-    } catch (err) {
-      setErroLgpd(err.response?.data?.detail || 'Erro ao salvar dados LGPD.')
-    } finally {
-      setSalvandoLgpd(false)
-    }
-  }
-
-  const registrarConsentimento = async () => {
-    setErroLgpd('')
-    setRegistrandoConsentimento(true)
-    try {
-      await api.registrarConsentimentoLgpd(id, consentimentoForm)
-      setConsentimentoForm((prev) => ({ ...prev, observacao: '' }))
-      await carregarCadastro()
-    } catch (err) {
-      setErroLgpd(err.response?.data?.detail || 'Erro ao registrar consentimento.')
-    } finally {
-      setRegistrandoConsentimento(false)
-    }
-  }
-
   if (carregando) return <p style={{ color: 'var(--text-soft)', fontSize: 14 }}>Carregando...</p>
   if (!form) return <p style={{ color: 'var(--danger)', fontSize: 14 }}>{erro || 'Erro ao abrir tela de edição.'}</p>
 
@@ -233,96 +181,12 @@ export default function EditarCadastro() {
             <textarea name="observacoes" rows={3} className="form-textarea" style={{ resize: 'vertical' }} value={form.observacoes} onChange={update('observacoes')} />
           </div>
 
-          <Secao titulo="LGPD operacional" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div>
-              <label className="form-label">Base legal</label>
-              <select className="form-select" value={lgpdForm.base_legal} onChange={(e) => setLgpdForm((prev) => ({ ...prev, base_legal: e.target.value }))}>
-                <option value="consentimento">consentimento</option>
-                <option value="execucao_de_politica_publica">execução de política pública</option>
-                <option value="obrigacao_legal">obrigação legal</option>
-                <option value="protecao_da_vida">proteção da vida</option>
-                <option value="legitimo_interesse">legítimo interesse</option>
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Status LGPD</label>
-              <select className="form-select" value={lgpdForm.status_lgpd} onChange={(e) => setLgpdForm((prev) => ({ ...prev, status_lgpd: e.target.value }))}>
-                <option value="pendente">pendente</option>
-                <option value="consentido">consentido</option>
-                <option value="revogado">revogado</option>
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Retenção até</label>
-              <input className="form-input" type="datetime-local" value={lgpdForm.retencao_ate} onChange={(e) => setLgpdForm((prev) => ({ ...prev, retencao_ate: e.target.value }))} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'end' }}>
-              <button type="button" className="btn-secondary" onClick={salvarLgpd} disabled={salvandoLgpd}>
-                {salvandoLgpd ? 'Salvando LGPD...' : 'Salvar LGPD'}
-              </button>
-            </div>
-          </div>
-
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Registrar consentimento</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label className="form-label">Tipo</label>
-                <select className="form-select" value={consentimentoForm.tipo} onChange={(e) => setConsentimentoForm((prev) => ({ ...prev, tipo: e.target.value }))}>
-                  <option value="concedido">concedido</option>
-                  <option value="revogado">revogado</option>
-                </select>
-              </div>
-              <div>
-                <label className="form-label">Base legal</label>
-                <input className="form-input" value={consentimentoForm.base_legal} onChange={(e) => setConsentimentoForm((prev) => ({ ...prev, base_legal: e.target.value }))} />
-              </div>
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <label className="form-label">Observação</label>
-              <textarea className="form-textarea" rows={2} style={{ resize: 'vertical' }} value={consentimentoForm.observacao} onChange={(e) => setConsentimentoForm((prev) => ({ ...prev, observacao: e.target.value }))} />
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <button type="button" className="btn-secondary" onClick={registrarConsentimento} disabled={registrandoConsentimento}>
-                {registrandoConsentimento ? 'Registrando...' : 'Registrar consentimento'}
-              </button>
-            </div>
-          </div>
-
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Histórico de consentimento</div>
-            {!consentimentos.length ? (
-              <p style={{ fontSize: 13, color: 'var(--text-soft)', margin: 0 }}>Sem registros até o momento.</p>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--surface-subtle)' }}>
-                      <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>Quando</th>
-                      <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>Tipo</th>
-                      <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>Base legal</th>
-                      <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>Observação</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {consentimentos.map((i) => (
-                      <tr key={i.id} style={{ borderBottom: '1px solid var(--row-border)' }}>
-                        <td style={{ padding: 8 }}>{new Date(i.criado_em).toLocaleString('pt-BR')}</td>
-                        <td style={{ padding: 8 }}>{i.tipo}</td>
-                        <td style={{ padding: 8 }}>{i.base_legal}</td>
-                        <td style={{ padding: 8 }}>{i.observacao || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+            Os PDFs dos termos (LGPD e uso de imagem) foram gerados na criação do cadastro. Para alterá-los, é necessário um novo cadastro ou fluxo definido pela coordenação.
+          </p>
         </div>
 
         {erro && <p style={{ color: 'var(--danger)', fontSize: 13, margin: '12px 0' }}>{erro}</p>}
-        {erroLgpd && <p style={{ color: 'var(--danger)', fontSize: 13, margin: '12px 0' }}>{erroLgpd}</p>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '1rem' }}>
           <button type="button" className="btn-secondary" onClick={() => navigate(-1)}>

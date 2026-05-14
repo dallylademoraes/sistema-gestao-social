@@ -1,0 +1,3 @@
+Este documento foi montado só a partir do ficheiro texto porque não foi encontrado nenhum PDF modelo na pasta backend/assets/termos.
+
+Para usar o termo oficial em PDF, coloque o ficheiro na pasta termos (por exemplo «Termo de uso de imagem — ASAP.pdf») e reinicie o servidor de aplicação.

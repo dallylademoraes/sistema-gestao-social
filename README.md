@@ -77,6 +77,14 @@ npm run dev
 
 Acesse: `http://localhost:5173` e use o login descrito em [Primeiro acesso (login na interface)](#primeiro-acesso-login-na-interface).
 
+### Novo cadastro, termos e assinatura
+
+- No **novo cadastro**, o assistente ou coordenadora deve aceitar os dois termos (LGPD e uso de imagem), **assinar no quadro** (tablet ou mouse) e só então salvar. O backend gera automaticamente dois PDFs com os dados e a assinatura.
+- Os textos jurídicos dos PDFs vêm de `backend/assets/termos/texto_lgpd.txt` e `texto_imagem.txt` — substitua pelo texto oficial da ASAP (ver `backend/assets/termos/README.md`).
+- **Prévia:** no formulário, use «Baixar prévia» para conferir o PDF sem gravar o cadastro.
+- Cadastros antigos sem os dois PDFs podem mostrar «Termos: pendente» até serem recriados ou tratados manualmente.
+- Se você já usava SQLite local (`dev.db`) de uma versão anterior e ocorrer erro de coluna ao subir o backend, apague `backend/dev.db` e suba de novo (perde dados locais) ou faça migração manual; o projeto não inclui Alembic neste repositório.
+
 ---
 
 ## Deploy no Railway (backend + banco)

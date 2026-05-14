@@ -30,36 +30,14 @@ export default function DetalheCadastro() {
   const [cadastro, setCadastro] = useState(null)
   const [aprovando, setAprovando] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
-  const [salvandoLgpd, setSalvandoLgpd] = useState(false)
-  const [registrandoConsentimento, setRegistrandoConsentimento] = useState(false)
   const [excluindoLgpd, setExcluindoLgpd] = useState(false)
   const [erroLgpd, setErroLgpd] = useState('')
   const [mostrarConfirmacaoExclusao, setMostrarConfirmacaoExclusao] = useState(false)
-  const [lgpdForm, setLgpdForm] = useState({
-    base_legal: 'consentimento',
-    status_lgpd: 'pendente',
-    retencao_ate: '',
-  })
-  const [consentimentoForm, setConsentimentoForm] = useState({
-    tipo: 'concedido',
-    base_legal: 'consentimento',
-    observacao: '',
-  })
   const [motivoExclusaoLgpd, setMotivoExclusaoLgpd] = useState('')
 
   const carregarCadastro = async () => {
     const r = await api.buscar(id)
-    const c = r.data
-    setCadastro(c)
-    setLgpdForm({
-      base_legal: c.base_legal || 'consentimento',
-      status_lgpd: c.status_lgpd || 'pendente',
-      retencao_ate: c.retencao_ate ? String(c.retencao_ate).slice(0, 16) : '',
-    })
-    setConsentimentoForm((prev) => ({
-      ...prev,
-      base_legal: c.base_legal || prev.base_legal,
-    }))
+    setCadastro(r.data)
   }
 
   useEffect(() => {
@@ -79,37 +57,6 @@ export default function DetalheCadastro() {
   const uploadDoc = async (tipo, arquivo) => {
     await api.uploadDoc(id, tipo, arquivo)
     await carregarCadastro()
-  }
-
-  const salvarLgpd = async () => {
-    setErroLgpd('')
-    setSalvandoLgpd(true)
-    try {
-      await api.atualizarLgpd(id, {
-        base_legal: lgpdForm.base_legal || undefined,
-        status_lgpd: lgpdForm.status_lgpd || undefined,
-        retencao_ate: lgpdForm.retencao_ate ? `${lgpdForm.retencao_ate}:00` : null,
-      })
-      await carregarCadastro()
-    } catch (err) {
-      setErroLgpd(err.response?.data?.detail || 'Não foi possível atualizar os dados LGPD.')
-    } finally {
-      setSalvandoLgpd(false)
-    }
-  }
-
-  const registrarConsentimento = async () => {
-    setErroLgpd('')
-    setRegistrandoConsentimento(true)
-    try {
-      await api.registrarConsentimentoLgpd(id, consentimentoForm)
-      setConsentimentoForm((prev) => ({ ...prev, observacao: '' }))
-      await carregarCadastro()
-    } catch (err) {
-      setErroLgpd(err.response?.data?.detail || 'Não foi possível registrar o consentimento.')
-    } finally {
-      setRegistrandoConsentimento(false)
-    }
   }
 
   const aplicarExclusaoLgpd = async () => {
@@ -148,6 +95,17 @@ export default function DetalheCadastro() {
   const podeExcluir = usuario?.perfil === 'coordenadora'
   const lgpdConcluido = Boolean(cadastro.lgpd_concluido)
 
+  const docsUpload = [
+    { tipo: 'foto', label: 'Foto', url: cadastro.foto_url, dica: 'Arquivo de identificação visual do cadastro.', acao: 'Enviar foto' },
+    { tipo: 'comprovante', label: 'Comprovante de residência', url: cadastro.comprovante_residencia_url, dica: 'Anexe PDF/JPG do comprovante atualizado.', acao: 'Enviar comprovante' },
+    { tipo: 'documento', label: 'Documento pessoal', url: cadastro.documento_pessoal_url, dica: 'RG, CNH ou outro documento oficial com foto.', acao: 'Enviar documento' },
+  ]
+
+  const docsTermos = [
+    { label: 'Termo LGPD (gerado no cadastro)', url: cadastro.termo_lgpd_url },
+    { label: 'Termo de uso de imagem (gerado no cadastro)', url: cadastro.termo_imagem_url },
+  ]
+
   return (
     <div className="centered-form-shell">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
@@ -168,7 +126,7 @@ export default function DetalheCadastro() {
                 fontWeight: 700,
               }}
             >
-              {lgpdConcluido ? 'LGPD: concluído' : 'LGPD: pendente'}
+              {lgpdConcluido ? 'Termos: ok' : 'Termos: pendente'}
             </span>
           </div>
         </div>
@@ -204,7 +162,7 @@ export default function DetalheCadastro() {
               onClick={aprovar}
               disabled={aprovando || !lgpdConcluido}
               className="btn-primary"
-              title={!lgpdConcluido ? 'Anexe o termo LGPD assinado antes de aprovar' : ''}
+              title={!lgpdConcluido ? 'Envie foto, comprovante, documento e aguarde os termos gerados no cadastro' : ''}
             >
               {aprovando ? 'Aprovando...' : 'Aprovar cadastro'}
             </button>
@@ -214,7 +172,7 @@ export default function DetalheCadastro() {
 
       {!lgpdConcluido && (
         <div style={{ marginBottom: '1rem', border: '1px solid var(--badge-pending-text)', background: 'var(--badge-pending-bg)', color: 'var(--text-main)', padding: '10px 12px', borderRadius: 10, fontSize: 13 }}>
-          Aprovação bloqueada: anexe os documentos obrigatórios e garanta consentimento LGPD ativo.
+          Aprovação bloqueada: anexe foto, comprovante de residência e documento pessoal. Os termos LGPD e de imagem são gerados automaticamente ao criar o cadastro (devem aparecer como PDF abaixo).
         </div>
       )}
 
@@ -261,13 +219,7 @@ export default function DetalheCadastro() {
 
         {secao('Documentos')}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {[
-            { tipo: 'foto', label: 'Foto', url: cadastro.foto_url, dica: 'Arquivo de identificação visual do cadastro.', acao: 'Enviar foto' },
-            { tipo: 'comprovante', label: 'Comprovante de residência', url: cadastro.comprovante_residencia_url, dica: 'Anexe PDF/JPG do comprovante atualizado.', acao: 'Enviar comprovante' },
-            { tipo: 'documento', label: 'Documento pessoal', url: cadastro.documento_pessoal_url, dica: 'RG, CNH ou outro documento oficial com foto.', acao: 'Enviar documento' },
-            { tipo: 'termo_imagem', label: 'Termo de imagem', url: cadastro.termo_imagem_url, dica: 'Termo assinado autorizando uso de imagem.', acao: 'Anexar termo' },
-            { tipo: 'termo_lgpd', label: 'Termo LGPD (assinado)', url: cadastro.termo_lgpd_url, dica: 'Anexe o termo de consentimento LGPD assinado (PDF/JPG).', acao: 'Anexar termo LGPD' },
-          ].map(({ tipo, label, url, dica, acao }) => (
+          {docsUpload.map(({ tipo, label, url, dica, acao }) => (
             <div key={tipo} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
               <div style={{ fontSize: 12, color: 'var(--text-soft)', marginBottom: 6 }}>{label}</div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>{dica}</div>
@@ -282,128 +234,21 @@ export default function DetalheCadastro() {
           ))}
         </div>
 
-        {secao('LGPD operacional')}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-          <div>
-            <label className="form-label">Base legal</label>
-            <select
-              className="form-select"
-              value={lgpdForm.base_legal}
-              onChange={(e) => setLgpdForm((prev) => ({ ...prev, base_legal: e.target.value }))}
-              disabled={!podeCriarOuEditarCadastro}
-            >
-              <option value="consentimento">consentimento</option>
-              <option value="execucao_de_politica_publica">execução de política pública</option>
-              <option value="obrigacao_legal">obrigação legal</option>
-              <option value="protecao_da_vida">proteção da vida</option>
-              <option value="legitimo_interesse">legítimo interesse</option>
-            </select>
-          </div>
-          <div>
-            <label className="form-label">Status LGPD</label>
-            <select
-              className="form-select"
-              value={lgpdForm.status_lgpd}
-              onChange={(e) => setLgpdForm((prev) => ({ ...prev, status_lgpd: e.target.value }))}
-              disabled={!podeCriarOuEditarCadastro}
-            >
-              <option value="pendente">pendente</option>
-              <option value="consentido">consentido</option>
-              <option value="revogado">revogado</option>
-            </select>
-          </div>
-          <div>
-            <label className="form-label">Retenção até</label>
-            <input
-              className="form-input"
-              type="datetime-local"
-              value={lgpdForm.retencao_ate}
-              onChange={(e) => setLgpdForm((prev) => ({ ...prev, retencao_ate: e.target.value }))}
-              disabled={!podeCriarOuEditarCadastro}
-            />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'end' }}>
-            <button className="btn-secondary" onClick={salvarLgpd} disabled={!podeCriarOuEditarCadastro || salvandoLgpd}>
-              {salvandoLgpd ? 'Salvando...' : 'Salvar dados LGPD'}
-            </button>
-          </div>
-        </div>
-
-        <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Registrar consentimento</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 8 }}>
-            <div>
-              <label className="form-label">Tipo</label>
-              <select
-                className="form-select"
-                value={consentimentoForm.tipo}
-                onChange={(e) => setConsentimentoForm((prev) => ({ ...prev, tipo: e.target.value }))}
-                disabled={!podeCriarOuEditarCadastro}
-              >
-                <option value="concedido">concedido</option>
-                <option value="revogado">revogado</option>
-              </select>
+        {secao('Termos assinados (PDF)')}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {docsTermos.map(({ label, url }) => (
+            <div key={label} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-soft)', marginBottom: 6 }}>{label}</div>
+              {url
+                ? <a href={urlArquivo(url)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--link)', fontWeight: 700 }}>Baixar PDF</a>
+                : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Indisponível (cadastro antigo ou erro na geração).</span>
+              }
             </div>
-            <div>
-              <label className="form-label">Base legal</label>
-              <input
-                className="form-input"
-                value={consentimentoForm.base_legal}
-                onChange={(e) => setConsentimentoForm((prev) => ({ ...prev, base_legal: e.target.value }))}
-                disabled={!podeCriarOuEditarCadastro}
-              />
-            </div>
-          </div>
-          <div>
-            <label className="form-label">Observação</label>
-            <textarea
-              className="form-textarea"
-              rows={2}
-              style={{ resize: 'vertical' }}
-              value={consentimentoForm.observacao}
-              onChange={(e) => setConsentimentoForm((prev) => ({ ...prev, observacao: e.target.value }))}
-              disabled={!podeCriarOuEditarCadastro}
-            />
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <button className="btn-secondary" onClick={registrarConsentimento} disabled={!podeCriarOuEditarCadastro || registrandoConsentimento}>
-              {registrandoConsentimento ? 'Registrando...' : 'Registrar consentimento'}
-            </button>
-          </div>
-        </div>
-
-        <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Histórico de consentimento</div>
-          {!cadastro.consentimentos?.length ? (
-            <p style={{ fontSize: 13, color: 'var(--text-soft)', margin: 0 }}>Sem registros até o momento.</p>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: 'var(--surface-subtle)' }}>
-                    <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>Quando</th>
-                    <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>Tipo</th>
-                    <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>Base legal</th>
-                    <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid var(--border)' }}>Observação</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cadastro.consentimentos.map((i) => (
-                    <tr key={i.id} style={{ borderBottom: '1px solid var(--row-border)' }}>
-                      <td style={{ padding: 8 }}>{new Date(i.criado_em).toLocaleString('pt-BR')}</td>
-                      <td style={{ padding: 8 }}>{i.tipo}</td>
-                      <td style={{ padding: 8 }}>{i.base_legal}</td>
-                      <td style={{ padding: 8 }}>{i.observacao || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          ))}
         </div>
 
         {podeExcluir && (
-          <div style={{ border: '1px solid var(--danger)', borderRadius: 8, padding: 12 }}>
+          <div style={{ marginTop: '1.5rem', border: '1px solid var(--danger)', borderRadius: 8, padding: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--danger)', marginBottom: 8 }}>Exclusão lógica por política LGPD</div>
             <label className="form-label">Motivo da exclusão</label>
             <textarea
