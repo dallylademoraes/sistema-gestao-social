@@ -169,7 +169,8 @@ def _gerar_pdfs_termos_e_anexar(c: Cadastro, png: bytes) -> None:
     c.termo_imagem_url = salvar_arquivo_externo(nome_img, pdf_img, "application/pdf")
 
 
-def _validar_requisitos_aprovacao(cadastro: Cadastro) -> None:
+def _pendencias_aprovacao(cadastro: Cadastro) -> list[str]:
+    pendencias: list[str] = []
     docs_obrigatorios = {
         "foto": cadastro.foto_url,
         "comprovante de residência": cadastro.comprovante_residencia_url,
@@ -177,24 +178,38 @@ def _validar_requisitos_aprovacao(cadastro: Cadastro) -> None:
         "termo LGPD": cadastro.termo_lgpd_url,
         "termo de uso de imagem": cadastro.termo_imagem_url,
     }
-    faltantes = [nome for nome, valor in docs_obrigatorios.items() if not valor]
-    if faltantes:
+    pendencias.extend(nome for nome, valor in docs_obrigatorios.items() if not valor)
+    if not cadastro.telefone or not cadastro.nome:
+        pendencias.append("dados básicos incompletos (nome e telefone)")
+    if not _cpf_valido(cadastro.cpf):
+        pendencias.append("CPF inválido")
+    try:
+        _validar_data_nascimento(cadastro.data_nascimento)
+        if _idade_em_anos(cadastro.data_nascimento) < 16:
+            pendencias.append("idade mínima de 16 anos")
+    except HTTPException as exc:
+        pendencias.append(str(exc.detail))
+    return pendencias
+
+
+def _validar_requisitos_aprovacao(cadastro: Cadastro) -> None:
+    pendencias = _pendencias_aprovacao(cadastro)
+    if not pendencias:
+        return
+    docs = {"foto", "comprovante de residência", "documento pessoal", "termo LGPD", "termo de uso de imagem"}
+    faltantes_docs = [p for p in pendencias if p in docs]
+    if faltantes_docs:
         raise HTTPException(
             status_code=400,
-            detail=f"Não é possível aprovar sem os documentos: {', '.join(faltantes)}",
+            detail=f"Não é possível aprovar sem os documentos: {', '.join(faltantes_docs)}",
         )
-    if not cadastro.telefone or not cadastro.nome:
-        raise HTTPException(status_code=400, detail="Dados básicos incompletos para aprovação")
-    if not _cpf_valido(cadastro.cpf):
-        raise HTTPException(status_code=400, detail="CPF inválido")
-    _validar_data_nascimento(cadastro.data_nascimento)
-    if _idade_em_anos(cadastro.data_nascimento) < 16:
-        raise HTTPException(status_code=400, detail="Idade mínima para aprovação é 16 anos")
+    raise HTTPException(status_code=400, detail=pendencias[0].capitalize())
 
 
 def _montar_saida_cadastro(db: Session, cadastro: Cadastro) -> CadastroOut:
     lgpd = _obter_lgpd(db, cadastro.id)
     tem_termos = bool(cadastro.termo_lgpd_url) and bool(cadastro.termo_imagem_url)
+    pendencias = _pendencias_aprovacao(cadastro)
 
     def url_documento(tipo: str, ref: Optional[str]) -> Optional[str]:
         return gerar_url_assinada_download(cadastro.id, tipo, ref) if ref else None
@@ -222,6 +237,8 @@ def _montar_saida_cadastro(db: Session, cadastro: Cadastro) -> CadastroOut:
         observacoes=cadastro.observacoes,
         status=cadastro.status,
         lgpd_concluido=tem_termos,
+        pronto_aprovacao=not pendencias,
+        pendencias_aprovacao=pendencias,
         criado_em=cadastro.criado_em,
         foto_url=url_documento("foto", cadastro.foto_url),
         comprovante_residencia_url=url_documento("comprovante", cadastro.comprovante_residencia_url),

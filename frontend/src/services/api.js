@@ -46,7 +46,10 @@ export const cadastros = {
   excluirLgpd: (id, motivo) => api.post(`/cadastros/${id}/lgpd/excluir`, { motivo }),
   excluir: (id) => api.delete(`/cadastros/${id}`),
   aprovar: (id) => api.post(`/cadastros/${id}/aprovar`),
-  pdfUrl: (id) => `/api/cadastros/${id}/pdf`,
+  baixarPdf: async (id) => {
+    const r = await api.get(`/cadastros/${id}/pdf`, { responseType: 'blob' })
+    return r.data
+  },
   uploadDoc: (id, tipo, arquivo) => {
     const form = new FormData()
     form.append('arquivo', arquivo)

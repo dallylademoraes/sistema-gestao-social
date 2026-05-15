@@ -17,33 +17,32 @@ from app.models.cadastro import Cadastro
 logger = logging.getLogger(__name__)
 
 _MESES_PT = (
-    "janeiro",
-    "fevereiro",
-    "março",
-    "abril",
-    "maio",
-    "junho",
-    "julho",
-    "agosto",
-    "setembro",
-    "outubro",
-    "novembro",
-    "dezembro",
+    "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
 )
+
+_FONTE_CORPO_MODELO = 12.0
+_FONTE_MINIMA_CAMPO = 10.5
+_FONTE_PADRAO = "helv"
+_MARGEM_ESQ = 72.0
+_MARGEM_DIR = 523.0
 
 
 def _parse_agora_br(agora: str) -> tuple[str, str, str, str, str]:
     """Retorna (dia, mês_nome, ano_4, ano_2, mês_2d) a partir de 'DD/MM/YYYY HH:MM UTC' ou ISO."""
     s = (agora or "").strip()
     m = re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})", s)
+
     if m:
         d, mo, y = m.group(1).zfill(2), int(m.group(2)), m.group(3)
         mes_nome = _MESES_PT[mo - 1] if 1 <= mo <= 12 else str(mo)
         return d, mes_nome, y, y[-2:], f"{mo:02d}"
+
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         mes_nome = _MESES_PT[dt.month - 1]
         return f"{dt.day:02d}", mes_nome, f"{dt.year:04d}", f"{dt.year % 100:02d}", f"{dt.month:02d}"
+
     except ValueError:
         hoje = datetime.now()
         return (
@@ -58,50 +57,117 @@ def _parse_agora_br(agora: str) -> tuple[str, str, str, str, str]:
 def _rua_e_numero(endereco: str | None) -> tuple[str, str]:
     if not (endereco or "").strip():
         return "", ""
+
     e = endereco.strip()
+
     if "," in e:
         partes = [p.strip() for p in e.split(",") if p.strip()]
         if len(partes) >= 2:
             return partes[0], partes[-1][:20]
+
     return e, "S/N"
 
 
-def _cobrir_e_texto(
+def _redact_rect(page: fitz.Page, rect: fitz.Rect) -> None:
+    page.add_redact_annot(rect, fill=(1, 1, 1))
+    page.apply_redactions()
+
+
+def _inserir_bloco_texto(
     page: fitz.Page,
     rect: fitz.Rect,
     texto: str,
     *,
-    max_font: float = 10.0,
-    min_font: float = 7.0,
-    alinhamento: int = fitz.TEXT_ALIGN_LEFT,
+    fontsize: float = _FONTE_CORPO_MODELO,
+    align: int = fitz.TEXT_ALIGN_LEFT,
 ) -> None:
-    if texto is None:
-        return
-    t = str(texto).strip()
+    """
+    Apaga a área do modelo e reescreve o texto como um bloco contínuo,
+    permitindo que o PyMuPDF quebre as linhas naturalmente conforme a largura
+    disponível — sem impor quebras artificiais no meio de frases.
+
+    Se o texto não couber com o tamanho padrão, reduz progressivamente o
+    fontsize até _FONTE_MINIMA_CAMPO antes de desistir.
+    """
+    t = str(texto or "").strip()
     if not t:
         return
-    page.draw_rect(rect, color=(1, 1, 1), fill=(1, 1, 1))
-    inner = fitz.Rect(rect.x0 + 0.8, rect.y0 + 0.5, rect.x1 - 0.8, rect.y1 - 1.0)
-    fs = max_font
-    while fs >= min_font:
-        excesso = page.insert_textbox(
-            inner,
+
+    _redact_rect(page, rect)
+
+    fs = fontsize
+    while fs >= _FONTE_MINIMA_CAMPO:
+        resultado = page.insert_textbox(
+            rect,
             t,
-            fontname="helv",
+            fontname=_FONTE_PADRAO,
             fontsize=fs,
             color=(0, 0, 0),
-            align=alinhamento,
+            align=align,
         )
-        if excesso >= 0:
+        # insert_textbox devolve o espaço vertical restante (≥ 0) ou negativo se não coube
+        if resultado >= 0:
             return
-        fs -= 0.5
-    page.insert_textbox(inner, t, fontname="helv", fontsize=min_font, color=(0, 0, 0), align=alinhamento)
+        fs -= 0.25
+
+    # Último recurso: insere no tamanho mínimo mesmo que extravase levemente
+    page.insert_textbox(
+        rect,
+        t,
+        fontname=_FONTE_PADRAO,
+        fontsize=_FONTE_MINIMA_CAMPO,
+        color=(0, 0, 0),
+        align=align,
+    )
 
 
-def _cobrir_e_imagem(page: fitz.Page, rect: fitz.Rect, png: bytes) -> None:
-    page.draw_rect(rect, color=(1, 1, 1), fill=(1, 1, 1))
+def _inserir_linha_simples(
+    page: fitz.Page,
+    y0: float,
+    y1: float,
+    texto: str,
+    *,
+    x0: float = _MARGEM_ESQ,
+    x1: float = _MARGEM_DIR,
+    fontsize: float = _FONTE_CORPO_MODELO,
+) -> None:
+    """Atalho para campos de linha única (data, CPF, nome isolado etc.)."""
+    _inserir_bloco_texto(page, fitz.Rect(x0, y0, x1, y1), texto, fontsize=fontsize)
+
+
+def _inserir_assinatura(page: fitz.Page, area: fitz.Rect, png: bytes) -> None:
+    """Assinatura manuscrita ampliada."""
+    _redact_rect(page, area)
+
     try:
-        page.insert_image(rect, stream=png, keep_proportion=True)
+        img_doc = fitz.open(stream=png, filetype="png")
+        pix = img_doc[0].get_pixmap(alpha=True)
+        img_doc.close()
+
+        iw, ih = pix.width, pix.height
+        if iw <= 0 or ih <= 0:
+            return
+
+        margem = 4.0
+        inner = fitz.Rect(
+            area.x0 + margem,
+            area.y0 + margem,
+            area.x1 - margem,
+            area.y1 - margem,
+        )
+
+        escala = min(inner.width / iw, inner.height / ih)
+        w, h = iw * escala, ih * escala
+
+        dest = fitz.Rect(
+            inner.x0 + (inner.width - w) / 2,
+            inner.y0 + (inner.height - h) / 2,
+            inner.x0 + (inner.width - w) / 2 + w,
+            inner.y0 + (inner.height - h) / 2 + h,
+        )
+
+        page.insert_image(dest, pixmap=pix)
+
     except Exception:
         logger.exception("Falha ao inserir assinatura no PDF modelo")
 
@@ -109,6 +175,7 @@ def _cobrir_e_imagem(page: fitz.Page, rect: fitz.Rect, png: bytes) -> None:
 def _detect_layout_uso_imagem(doc: fitz.Document) -> bool:
     if doc.page_count < 1:
         return False
+
     p0 = doc[0]
     return bool(p0.search_for("Eu,")) and bool(p0.search_for("AUTORIZO"))
 
@@ -116,10 +183,12 @@ def _detect_layout_uso_imagem(doc: fitz.Document) -> bool:
 def _detect_layout_lgpd(doc: fitz.Document) -> bool:
     if doc.page_count < 1:
         return False
+
     for i in range(doc.page_count - 1, -1, -1):
         p = doc[i]
         if p.search_for("Assinatura") and (p.search_for("titular") or p.search_for("Nome")):
             return True
+
     return False
 
 
@@ -128,45 +197,90 @@ def _indice_pagina_assinatura_lgpd(doc: fitz.Document) -> int:
         p = doc[i]
         if p.search_for("Assinatura") and p.search_for("CPF"):
             return i
+
     return doc.page_count - 1
 
 
-def _preencher_uso_imagem_p0(page: fitz.Page, cadastro: Cadastro, agora: str, imagem_png: bytes | None) -> None:
-    """Coordenadas extraídas do modelo «Termo de uso de imagem — ASAP.pdf» (A4)."""
-    dia, mes_nome, _ano4, ano2, _mm = _parse_agora_br(agora)
+def _preencher_uso_imagem_p0(
+    page: fitz.Page,
+    cadastro: Cadastro,
+    agora: str,
+    imagem_png: bytes | None,
+) -> None:
+    """
+    Preenche a página do Termo de Uso de Imagem.
+
+    O modelo original divide o primeiro parágrafo em dois blocos físicos
+    separados por um espaço em branco: o trecho variável ("Eu, [nome]…")
+    ocupa y≈119–167 e o trecho fixo ("meio de fotos…") começa em y≈197.
+    Para que o resultado seja um único parágrafo contínuo, apagamos ambas
+    as regiões e reinserimos o texto completo como um só bloco, deixando
+    o PyMuPDF calcular as quebras de linha naturalmente.
+    """
+    dia, mes_nome, ano4, ano2, _mm = _parse_agora_br(agora)
     rua, numero = _rua_e_numero(cadastro.endereco)
-    rg_txt = " ".join([p for p in [cadastro.rg or "", cadastro.orgao_expedidor or ""] if p]).strip() or "—"
 
-    # Campos do formulário (y cresce para baixo)
-    _cobrir_e_texto(page, fitz.Rect(95.59, 116.13, 439.20, 129.54), cadastro.nome or "")
-    _cobrir_e_texto(page, fitz.Rect(233.82, 131.99, 350.58, 145.40), rg_txt)
-    _cobrir_e_texto(page, fitz.Rect(72.0, 147.87, 182.09, 161.27), cadastro.cpf or "")
-    _cobrir_e_texto(page, fitz.Rect(72.0, 163.74, 328.87, 177.14), rua)
-    _cobrir_e_texto(page, fitz.Rect(369.16, 163.74, 419.20, 177.14), numero)
-    _cobrir_e_texto(page, fitz.Rect(72.0, 179.60, 208.78, 193.01), cadastro.cidade or "")
+    rg_txt = " ".join(filter(None, [cadastro.rg or "", cadastro.orgao_expedidor or ""])).strip() or "—"
+    nome    = (cadastro.nome or "").strip() or "—"
+    cpf     = (cadastro.cpf or "").strip() or "—"
+    cidade  = (cadastro.cidade or "").strip() or "—"
+    local   = ", ".join(filter(None, [cadastro.cidade or "", cadastro.uf or ""])) or cidade
+    ano_txt = ano4 if len(ano4) == 4 else f"20{ano2}"
 
-    local = ", ".join([p for p in [cadastro.cidade or "", cadastro.uf or ""] if p]) or (cadastro.cidade or "—")
-    _cobrir_e_texto(page, fitz.Rect(72.0, 469.67, 189.0, 482.96), local)
-    _cobrir_e_texto(page, fitz.Rect(192.0, 469.67, 222.0, 482.96), dia, max_font=9)
-    _cobrir_e_texto(page, fitz.Rect(239.33, 469.67, 323.33, 482.96), mes_nome, max_font=9)
-    _cobrir_e_texto(page, fitz.Rect(340.65, 469.67, 373.65, 482.96), ano2, max_font=9)
+    # ------------------------------------------------------------------
+    # Parágrafo 1 completo: trecho variável + continuação fixa do modelo.
+    # Apaga a região que abrange os dois blocos originais (y=115 a y=270)
+    # e reescreve como texto corrido único.
+    # ------------------------------------------------------------------
+    texto_paragrafo1 = (
+        f"Eu, {nome}, portador(a) da Cédula de Identidade nº {rg_txt}, "
+        f"inscrito(a) no CPF sob nº {cpf}, residente à Rua {rua}, "
+        f"nº {numero}, na cidade de {cidade}, AUTORIZO o uso e divulgação "
+        f"da minha imagem por meio de fotos, vídeos e/ou outros registros "
+        f"audiovisuais realizados pela Ação Social Arquidiocesana de Palmas "
+        f"(ASAP), para fins institucionais, sem finalidade comercial, "
+        f"relacionados às atividades, projetos, ações e prestação de contas "
+        f"da instituição."
+    )
+    _inserir_bloco_texto(
+        page,
+        fitz.Rect(_MARGEM_ESQ, 115.0, _MARGEM_DIR, 268.0),
+        texto_paragrafo1,
+        align=fitz.TEXT_ALIGN_JUSTIFY,
+    )
+
+    # ------------------------------------------------------------------
+    # Data: inserida logo abaixo da área da assinatura.
+    # No modelo em branco a linha de data fica em y≈455–467; usamos a
+    # mesma faixa, que está acima da linha «Assinatura» (y≈534).
+    # ------------------------------------------------------------------
+    _inserir_linha_simples(page, 453.0, 469.0, f"{local}, {dia} de {mes_nome} de {ano_txt}.")
+
+    # Apaga a linha de sublinhados da assinatura (mantém o rótulo «Assinatura»)
+    _redact_rect(page, fitz.Rect(167.5, 517.2, 422.0, 530.6))
 
     if imagem_png:
-        _cobrir_e_imagem(page, fitz.Rect(167.50, 517.17, 427.71, 530.58), imagem_png)
+        _inserir_assinatura(page, fitz.Rect(120.0, 478.0, 470.0, 532.0), imagem_png)
 
 
-def _preencher_lgpd_assinatura(page: fitz.Page, cadastro: Cadastro, agora: str, imagem_png: bytes | None) -> None:
+def _preencher_lgpd_assinatura(
+    page: fitz.Page,
+    cadastro: Cadastro,
+    agora: str,
+    imagem_png: bytes | None,
+) -> None:
     """Última página com «Nome do titular» / CPF / assinatura / data (modelo ASAP)."""
     dia, _mes_nome, ano4, _ano2, mm = _parse_agora_br(agora)
+    nome = (cadastro.nome or "").strip() or "—"
+    cpf  = (cadastro.cpf or "").strip() or "—"
 
-    _cobrir_e_texto(page, fitz.Rect(76.89, 627.80, 333.83, 641.20), cadastro.nome or "")
-    _cobrir_e_texto(page, fitz.Rect(364.89, 627.80, 518.34, 641.20), cadastro.cpf or "")
+    _inserir_linha_simples(page, 627.8, 641.2, nome, x0=76.9,  x1=333.8)
+    _inserir_linha_simples(page, 627.8, 641.2, cpf,  x0=364.9, x1=518.3)
+
     if imagem_png:
-        _cobrir_e_imagem(page, fitz.Rect(167.50, 691.27, 427.71, 704.68), imagem_png)
+        _inserir_assinatura(page, fitz.Rect(110.0, 675.0, 485.0, 735.0), imagem_png)
 
-    _cobrir_e_texto(page, fitz.Rect(257.59, 738.88, 284.28, 752.28), dia, max_font=9)
-    _cobrir_e_texto(page, fitz.Rect(294.29, 738.88, 320.97, 752.28), mm, max_font=9)
-    _cobrir_e_texto(page, fitz.Rect(330.98, 738.88, 371.02, 752.28), ano4, max_font=9)
+    _inserir_linha_simples(page, 738.9, 752.3, f"{dia}/{mm}/{ano4}", x0=257.6, x1=371.0)
 
 
 def try_preencher_modelo_asap_pdf(
@@ -177,24 +291,30 @@ def try_preencher_modelo_asap_pdf(
     imagem_png: bytes | None,
 ) -> Optional[bytes]:
     """
-    Devolve PDF em bytes com o modelo oficial preenchido, ou None para usar o fluxo antigo (anexo ReportLab).
+    Devolve PDF em bytes com o modelo oficial preenchido, ou None para usar
+    o fluxo antigo (anexo ReportLab).
     """
     try:
         doc = fitz.open(str(modelo_path))
     except Exception:
         logger.exception("Não foi possível abrir o modelo PDF: %s", modelo_path)
         return None
+
     try:
         if tipo == "imagem" and _detect_layout_uso_imagem(doc):
             _preencher_uso_imagem_p0(doc[0], cadastro, agora, imagem_png)
             return doc.tobytes(deflate=True, garbage=4)
+
         if tipo == "lgpd" and _detect_layout_lgpd(doc):
             idx = _indice_pagina_assinatura_lgpd(doc)
             _preencher_lgpd_assinatura(doc[idx], cadastro, agora, imagem_png)
             return doc.tobytes(deflate=True, garbage=4)
+
     except Exception:
         logger.exception("Falha ao preencher modelo ASAP (tipo=%s)", tipo)
         return None
+
     finally:
         doc.close()
+
     return None

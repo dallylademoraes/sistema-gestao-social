@@ -85,6 +85,8 @@ class CadastroOut(CadastroDadosBase):
     id: int
     status: str
     lgpd_concluido: bool = False
+    pronto_aprovacao: bool = False
+    pendencias_aprovacao: list[str] = Field(default_factory=list)
     criado_em: datetime
     foto_url: Optional[str] = None
     comprovante_residencia_url: Optional[str] = None

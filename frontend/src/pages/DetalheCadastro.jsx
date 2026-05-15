@@ -34,6 +34,8 @@ export default function DetalheCadastro() {
   const [erroLgpd, setErroLgpd] = useState('')
   const [mostrarConfirmacaoExclusao, setMostrarConfirmacaoExclusao] = useState(false)
   const [motivoExclusaoLgpd, setMotivoExclusaoLgpd] = useState('')
+  const [baixandoPdf, setBaixandoPdf] = useState(false)
+  const [erroAprovar, setErroAprovar] = useState('')
 
   const carregarCadastro = async () => {
     const r = await api.buscar(id)
@@ -45,16 +47,21 @@ export default function DetalheCadastro() {
   }, [id])
 
   const aprovar = async () => {
+    setErroAprovar('')
     setAprovando(true)
     try {
       await api.aprovar(id)
       await carregarCadastro()
+    } catch (err) {
+      const d = err.response?.data?.detail
+      setErroAprovar(typeof d === 'string' ? d : 'Não foi possível aprovar o cadastro.')
     } finally {
       setAprovando(false)
     }
   }
 
   const uploadDoc = async (tipo, arquivo) => {
+    setErroAprovar('')
     await api.uploadDoc(id, tipo, arquivo)
     await carregarCadastro()
   }
@@ -88,12 +95,34 @@ export default function DetalheCadastro() {
     }
   }
 
+  const baixarPdf = async () => {
+    setBaixandoPdf(true)
+    try {
+      const blob = await api.baixarPdf(id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `cadastro_${String(id).padStart(4, '0')}.pdf`
+      a.rel = 'noopener'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch {
+      alert('Não foi possível baixar o PDF do cadastro.')
+    } finally {
+      setBaixandoPdf(false)
+    }
+  }
+
   if (!cadastro) return <p style={{ color: 'var(--text-soft)', fontSize: 14 }}>Carregando...</p>
 
   const podeCriarOuEditarCadastro = ['coordenadora', 'assistente'].includes(usuario?.perfil)
   const podeAprovar = ['coordenadora', 'ti'].includes(usuario?.perfil)
   const podeExcluir = usuario?.perfil === 'coordenadora'
   const lgpdConcluido = Boolean(cadastro.lgpd_concluido)
+  const prontoAprovacao = Boolean(cadastro.pronto_aprovacao)
+  const pendenciasAprovacao = cadastro.pendencias_aprovacao || []
 
   const docsUpload = [
     { tipo: 'foto', label: 'Foto', url: cadastro.foto_url, dica: 'Arquivo de identificação visual do cadastro.', acao: 'Enviar foto' },
@@ -139,15 +168,14 @@ export default function DetalheCadastro() {
           >
             Editar
           </button>
-          <a
-            href={api.pdfUrl(id)}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
             className="btn-secondary"
-            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+            onClick={baixarPdf}
+            disabled={baixandoPdf}
           >
-            Baixar PDF
-          </a>
+            {baixandoPdf ? 'Gerando PDF…' : 'Baixar PDF'}
+          </button>
           <button
             type="button"
             className="btn-secondary"
@@ -160,9 +188,13 @@ export default function DetalheCadastro() {
           {podeAprovar && cadastro.status === 'pendente' && (
             <button
               onClick={aprovar}
-              disabled={aprovando || !lgpdConcluido}
+              disabled={aprovando || !prontoAprovacao}
               className="btn-primary"
-              title={!lgpdConcluido ? 'Envie foto, comprovante, documento e aguarde os termos gerados no cadastro' : ''}
+              title={
+                !prontoAprovacao && pendenciasAprovacao.length
+                  ? `Pendências: ${pendenciasAprovacao.join(', ')}`
+                  : ''
+              }
             >
               {aprovando ? 'Aprovando...' : 'Aprovar cadastro'}
             </button>
@@ -170,10 +202,17 @@ export default function DetalheCadastro() {
         </div>
       </div>
 
-      {!lgpdConcluido && (
+      {cadastro.status === 'pendente' && !prontoAprovacao && (
         <div style={{ marginBottom: '1rem', border: '1px solid var(--badge-pending-text)', background: 'var(--badge-pending-bg)', color: 'var(--text-main)', padding: '10px 12px', borderRadius: 10, fontSize: 13 }}>
-          Aprovação bloqueada: anexe foto, comprovante de residência e documento pessoal. Os termos LGPD e de imagem são gerados automaticamente ao criar o cadastro (devem aparecer como PDF abaixo).
+          Aprovação bloqueada
+          {pendenciasAprovacao.length > 0
+            ? `: ${pendenciasAprovacao.join(', ')}.`
+            : ': anexe foto, comprovante de residência, documento pessoal e confira os termos gerados no cadastro.'}
         </div>
+      )}
+
+      {erroAprovar && (
+        <p style={{ color: 'var(--danger)', marginBottom: '1rem', fontSize: 13 }}>{erroAprovar}</p>
       )}
 
       <ConfirmModal

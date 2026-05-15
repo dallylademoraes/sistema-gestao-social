@@ -1,11 +1,28 @@
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib import colors
 from reportlab.lib.units import cm
+from reportlab.lib.utils import ImageReader
 
 from app.models.cadastro import Cadastro
+from app.services.pdf_assets import resolver_logo_asap
+
+
+def _elemento_logo_asap() -> list:
+    logo_path = resolver_logo_asap()
+    if not logo_path:
+        return []
+    reader = ImageReader(str(logo_path))
+    iw, ih = reader.getSize()
+    if iw <= 0 or ih <= 0:
+        return []
+    largura = 5.5 * cm
+    altura = largura * (ih / float(iw))
+    altura = min(altura, 2.8 * cm)
+    largura = altura * (iw / float(ih))
+    return [Image(str(logo_path), width=largura, height=altura), Spacer(1, 0.4 * cm)]
 
 
 def gerar_pdf_cadastro(cadastro: Cadastro) -> bytes:
@@ -21,6 +38,7 @@ def gerar_pdf_cadastro(cadastro: Cadastro) -> bytes:
         return [Paragraph(f"<b>{label}</b>", corpo), Paragraph(str(valor or "—"), corpo)]
 
     elementos = [
+        *_elemento_logo_asap(),
         Paragraph("ASAP — Ficha de Cadastro", titulo),
         Paragraph(f"#{cadastro.id:04d} · Status: {cadastro.status.upper()}", corpo),
         Spacer(1, 0.5*cm),
