@@ -1,6 +1,7 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api' })
+// Send credentials (cookies) with requests so server-set HttpOnly cookie is included
+const api = axios.create({ baseURL: '/api', withCredentials: true })
 
 const cadastrosListCache = new Map()
 const CADASTROS_CACHE_MS = 5 * 60 * 1000
@@ -57,18 +58,15 @@ const clearCadastrosCache = () => {
   }
 }
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
-})
-
+// With cookie-based auth we don't attach Authorization header from localStorage.
+// Keep a simple response interceptor to redirect on 401.
 api.interceptors.response.use(
   (r) => r,
   (err) => {
     const url = err.config?.url || ''
-    if (err.response?.status === 401 && !url.includes('/auth/token')) {
-      localStorage.removeItem('token')
+    const isAuthMe = url.includes('/auth/me')
+    const isLoginPage = typeof window !== 'undefined' && window.location.pathname === '/login'
+    if (err.response?.status === 401 && !url.includes('/auth/token') && !isAuthMe && !isLoginPage) {
       window.location.href = '/login'
     }
     return Promise.reject(err)
@@ -87,6 +85,7 @@ export const auth = {
   exportarAuditoria: (params) => api.get('/auth/auditoria/export', { params, responseType: 'blob' }),
   forgotPassword: (email) => api.post('/auth/password/forgot', { email }),
   resetPassword: (token, novaSenha) => api.post('/auth/password/reset', { token, nova_senha: novaSenha }),
+  logout: () => api.post('/auth/logout'),
 }
 
 export const cadastros = {
@@ -111,6 +110,14 @@ export const cadastros = {
   },
   exportarGraficosCsv: async (params) => {
     const r = await api.get('/cadastros/export/graficos.csv', { params, responseType: 'blob' })
+    return r.data
+  },
+  exportarCadastrosXlsx: async (params) => {
+    const r = await api.get('/cadastros/export/cadastros.xlsx', { params, responseType: 'blob' })
+    return r.data
+  },
+  exportarGraficosXlsx: async (params) => {
+    const r = await api.get('/cadastros/export/graficos.xlsx', { params, responseType: 'blob' })
     return r.data
   },
   criar: (data) => api.post('/cadastros/', data).then((r) => { clearCadastrosCache(); return r }),

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, Response
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -33,6 +33,14 @@ from app.core.security import (
 from app.models.audit_log import AuditLog
 from app.models.login_throttle import LoginThrottle
 from app.services.audit import registrar_auditoria
+from app.services.sheets_usuarios import (
+    buscar_usuario_sheets,
+    contar_coordenadoras_ativas_sheets,
+    criar_usuario_sheets,
+    listar_usuarios_sheets,
+    atualizar_usuario_sheets,
+    usuarios_sheets_enabled,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,6 +48,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def _garantir_coordenadora(usuario: Usuario) -> None:
     if usuario.perfil != "coordenadora":
         raise HTTPException(status_code=403, detail="Apenas coordenadora pode gerenciar usuários")
+
+
+def _usuarios_em_planilha() -> bool:
+    return usuarios_sheets_enabled()
+
+
+def _usuario_valido_para_login(usuario) -> bool:
+    return bool(usuario and getattr(usuario, "senha_hash", None) and getattr(usuario, "email", None))
 
 
 def _contar_coordenadoras_ativas(db: Session) -> int:
@@ -131,8 +147,8 @@ def _registrar_falha_login(db: Session, identifier: str, agora: datetime) -> Non
     db.flush()
 
 
-@router.post("/token", response_model=Token)
-def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@router.post("/token")
+def login(request: Request, response: Response, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     agora = datetime.now(timezone.utc)
     email = form.username.strip().lower()
     ip = request.client.host if request.client else None
@@ -150,6 +166,10 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
                 )
 
     usuario = db.query(Usuario).filter(Usuario.email == email).first()
+    if not _usuario_valido_para_login(usuario) and _usuarios_em_planilha():
+        usuario = buscar_usuario_sheets(email=email)
+    if not _usuario_valido_para_login(usuario):
+        usuario = None
     if not usuario or not verificar_senha(form.password, usuario.senha_hash):
         for chave in chaves:
             _registrar_falha_login(db, chave, agora)
@@ -161,20 +181,53 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
         _limpar_throttle(db, chave)
     db.commit()
     token = criar_token({"sub": usuario.email, "perfil": usuario.perfil})
-    return {"access_token": token}
+    # set HttpOnly cookie for browser clients
+    try:
+        secure_cookie = settings.FRONTEND_URL.startswith("https://")
+    except Exception:
+        secure_cookie = False
+    max_age = int(settings.ACCESS_TOKEN_EXPIRE_MINUTES) * 60
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax",
+        max_age=max_age,
+        path="/",
+    )
+    return {"message": "ok"}
+
+
+@router.post("/logout")
+def logout(response: Response):
+    # Remove the access_token cookie from the browser
+    response.delete_cookie("access_token", path="/", samesite="lax")
+    return {"message": "logged out"}
 
 
 @router.post("/usuarios", response_model=UsuarioOut, status_code=201)
 def criar_usuario(body: UsuarioCreate, request: Request, db: Session = Depends(get_db),
                   atual: Usuario = Depends(usuario_atual)):
     _garantir_coordenadora(atual)
-    if db.query(Usuario).filter(Usuario.email == body.email).first():
+    if _usuarios_em_planilha():
+        if buscar_usuario_sheets(email=body.email):
+            raise HTTPException(status_code=400, detail="E-mail já cadastrado")
+        u = criar_usuario_sheets({
+            "nome": body.nome,
+            "email": body.email,
+            "senha_hash": hash_senha(body.senha),
+            "perfil": body.perfil,
+            "ativo": True,
+        })
+    elif db.query(Usuario).filter(Usuario.email == body.email).first():
         raise HTTPException(status_code=400, detail="E-mail já cadastrado")
-    u = Usuario(nome=body.nome, email=body.email,
-                senha_hash=hash_senha(body.senha), perfil=body.perfil)
-    db.add(u)
-    db.commit()
-    db.refresh(u)
+    else:
+        u = Usuario(nome=body.nome, email=body.email,
+                    senha_hash=hash_senha(body.senha), perfil=body.perfil)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
     registrar_auditoria(
         db,
         action="user.create",
@@ -190,6 +243,8 @@ def criar_usuario(body: UsuarioCreate, request: Request, db: Session = Depends(g
 @router.get("/usuarios", response_model=List[UsuarioOut])
 def listar_usuarios(db: Session = Depends(get_db), atual: Usuario = Depends(usuario_atual)):
     _garantir_coordenadora(atual)
+    if _usuarios_em_planilha():
+        return listar_usuarios_sheets()
     return db.query(Usuario).order_by(Usuario.criado_em.desc()).all()
 
 
@@ -203,13 +258,54 @@ def atualizar_usuario(
 ):
     _garantir_coordenadora(atual)
 
+    dados = body.model_dump(exclude_unset=True)
+    if not dados:
+        if _usuarios_em_planilha():
+            alvo_planilha = buscar_usuario_sheets(usuario_id=usuario_id)
+            if not alvo_planilha:
+                raise HTTPException(status_code=404, detail="Usuário não encontrado")
+            return alvo_planilha
+        alvo_db = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if not alvo_db:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        return alvo_db
+
+    if _usuarios_em_planilha():
+        alvo = buscar_usuario_sheets(usuario_id=usuario_id)
+        if not alvo:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        if "email" in dados and dados["email"] != alvo.email:
+            if buscar_usuario_sheets(email=dados["email"]):
+                raise HTTPException(status_code=400, detail="E-mail já cadastrado")
+        perfil_novo = dados.get("perfil", alvo.perfil)
+        ativo_novo = dados.get("ativo", alvo.ativo)
+        era_coordenadora_ativa = alvo.perfil == "coordenadora" and alvo.ativo
+        continuara_coordenadora_ativa = perfil_novo == "coordenadora" and ativo_novo
+
+        if alvo.id == atual.id:
+            if "ativo" in dados and dados["ativo"] is False:
+                raise HTTPException(status_code=400, detail="Não é permitido desativar seu próprio usuário")
+            if "perfil" in dados and dados["perfil"] != atual.perfil:
+                raise HTTPException(status_code=400, detail="Não é permitido alterar seu próprio perfil")
+
+        if era_coordenadora_ativa and not continuara_coordenadora_ativa and contar_coordenadoras_ativas_sheets() <= 1:
+            raise HTTPException(status_code=400, detail="Não é permitido remover a última coordenadora ativa")
+
+        atualizado = atualizar_usuario_sheets(usuario_id, dados)
+        registrar_auditoria(
+            db,
+            action="user.update",
+            entity_type="usuario",
+            entity_id=usuario_id,
+            details=f"campos={','.join(sorted(dados.keys()))}",
+            actor=atual,
+            ip_address=request.client.host if request.client else None,
+        )
+        return atualizado
+
     alvo = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not alvo:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-
-    dados = body.model_dump(exclude_unset=True)
-    if not dados:
-        return alvo
 
     if "email" in dados and dados["email"] != alvo.email:
         if db.query(Usuario).filter(and_(Usuario.email == dados["email"], Usuario.id != alvo.id)).first():

@@ -1,4 +1,5 @@
-import { NavLink, Outlet, Navigate } from 'react-router-dom'
+import { Navigate, NavLink, Outlet } from 'react-router-dom'
+import logoAsap from '../assets/ASAP_icon_hd.png'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../hooks/useTheme'
 
@@ -26,8 +27,8 @@ export default function Layout() {
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <aside style={{ width: 232, background: 'var(--surface-elevated)', borderRight: '1px solid var(--border)', padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '2rem' }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(145deg, #2fb383 0%, #1f8a65 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 11 }}>
-            ASAP
+          <div style={{ width: 64, height: 40, borderRadius: 8, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img src={`${logoAsap}?t=${Date.now()}`} alt="ASAP" style={{ width: '90%', height: '90%', objectFit: 'contain', display: 'block' }} />
           </div>
           <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-main)' }}>Cadastros</span>
         </div>

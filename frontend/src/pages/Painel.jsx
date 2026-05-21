@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { cadastros as api } from '../services/api'
 import { Link, useLocation } from 'react-router-dom'
-import ChartCard from '../components/charts/ChartCard'
 import BarChart from '../components/charts/BarChart'
+import ChartCard from '../components/charts/ChartCard'
 import DonutChart from '../components/charts/DonutChart'
-import { baixarBlob, baixarCsvGrafico } from '../utils/exportCsv'
+import { cadastros as api } from '../services/api'
+import { baixarBlob, baixarGraficoPng } from '../utils/exportCsv'
 import {
-  statusDistribuicao,
-  cadastrosPorMes,
-  topCidades,
-  pcdDistribuicao,
-  identidadeGeneroDistribuicao,
-  corRacaDistribuicao,
-  rendaDistribuicao,
-  faixaEtariaDistribuicao,
-  encaminhamentoDistribuicao,
+    cadastrosPorMes,
+    corRacaDistribuicao,
+    encaminhamentoDistribuicao,
+    faixaEtariaDistribuicao,
+    identidadeGeneroDistribuicao,
+    pcdDistribuicao,
+    rendaDistribuicao,
+    statusDistribuicao,
+    topCidades,
 } from '../utils/painelStats'
 
 function Metrica({ label, valor, cor }) {
@@ -98,8 +98,8 @@ export default function Painel() {
   const exportarCadastros = async () => {
     setExportando('cadastros')
     try {
-      const blob = await api.exportarCsv()
-      baixarBlob(blob, 'cadastros_asap.csv')
+      const blob = await api.exportarCadastrosXlsx()
+      baixarBlob(blob, 'cadastros_asap.xlsx')
     } finally {
       setExportando('')
     }
@@ -108,16 +108,29 @@ export default function Painel() {
   const exportarResumoGraficos = async () => {
     setExportando('graficos')
     try {
-      const blob = await api.exportarGraficosCsv()
-      baixarBlob(blob, 'resumo_graficos_asap.csv')
+      const blob = await api.exportarGraficosXlsx()
+      baixarBlob(blob, 'resumo_graficos_asap.xlsx')
     } finally {
       setExportando('')
     }
   }
 
-  const acaoCsvGrafico = (titulo, data) => (
-    <button type="button" className="btn-compact" onClick={() => baixarCsvGrafico(titulo, data)}>
-      CSV
+  const acaoPngGrafico = (titulo, data) => (
+    <button
+      type="button"
+      className="btn-compact"
+      onClick={() => baixarGraficoPng(titulo, data)}
+      title="Baixar PNG"
+      style={{
+        background: 'transparent',
+        border: 'none',
+        color: 'var(--text-muted)',
+        padding: '6px 8px',
+        fontSize: 12,
+        cursor: 'pointer',
+      }}
+    >
+      PNG
     </button>
   )
 
@@ -130,10 +143,10 @@ export default function Painel() {
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button type="button" className="btn-compact" onClick={exportarResumoGraficos} disabled={Boolean(exportando)}>
-            {exportando === 'graficos' ? 'Exportando...' : 'Exportar gráficos CSV'}
+            {exportando === 'graficos' ? 'Exportando...' : 'Exportar gráficos (Excel)'}
           </button>
           <button type="button" className="btn-compact" onClick={exportarCadastros} disabled={Boolean(exportando)}>
-            {exportando === 'cadastros' ? 'Exportando...' : 'Exportar cadastros CSV'}
+            {exportando === 'cadastros' ? 'Exportando...' : 'Exportar cadastros (Excel)'}
           </button>
         </div>
       </div>
@@ -153,39 +166,39 @@ export default function Painel() {
 
       {!carregando && lista.length > 0 && (
         <div className="painel-charts-grid">
-          <ChartCard title="Cadastros por status" subtitle="Distribuição atual na base" actions={acaoCsvGrafico('Cadastros por status', stats.porStatus)}>
+          <ChartCard title="Cadastros por status" subtitle="Distribuição atual na base" actions={acaoPngGrafico('Cadastros por status', stats.porStatus)}>
             <BarChart data={stats.porStatus} height={220} />
           </ChartCard>
 
-          <ChartCard title="Novos cadastros" subtitle="Últimos 6 meses" actions={acaoCsvGrafico('Novos cadastros', stats.porMes)}>
+          <ChartCard title="Novos cadastros" subtitle="Últimos 6 meses" actions={acaoPngGrafico('Novos cadastros', stats.porMes)}>
             <BarChart data={stats.porMes} height={220} />
           </ChartCard>
 
-          <ChartCard title="Faixa etária" subtitle="Perfil etário das pessoas atendidas" actions={acaoCsvGrafico('Faixa etária', stats.faixaEtaria)}>
+          <ChartCard title="Faixa etária" subtitle="Perfil etário das pessoas atendidas" actions={acaoPngGrafico('Faixa etária', stats.faixaEtaria)}>
             <BarChart data={stats.faixaEtaria} height={220} />
           </ChartCard>
 
-          <ChartCard title="PCD" subtitle="Pessoas com deficiência declarada" actions={acaoCsvGrafico('PCD', stats.pcd)}>
+          <ChartCard title="PCD" subtitle="Pessoas com deficiência declarada" actions={acaoPngGrafico('PCD', stats.pcd)}>
             <DonutChart data={stats.pcd} size={150} />
           </ChartCard>
 
-          <ChartCard title="Encaminhamentos" subtitle="Demandas com encaminhamento registrado" actions={acaoCsvGrafico('Encaminhamentos', stats.encaminhamentos)}>
+          <ChartCard title="Encaminhamentos" subtitle="Demandas com encaminhamento registrado" actions={acaoPngGrafico('Encaminhamentos', stats.encaminhamentos)}>
             <DonutChart data={stats.encaminhamentos} size={150} />
           </ChartCard>
 
-          <ChartCard title="Renda média" subtitle="Distribuição socioeconômica declarada" actions={acaoCsvGrafico('Renda média', stats.renda)}>
+          <ChartCard title="Renda média" subtitle="Distribuição socioeconômica declarada" actions={acaoPngGrafico('Renda média', stats.renda)}>
             <BarChart data={stats.renda} vertical={false} />
           </ChartCard>
 
-          <ChartCard title="Cor/raça" subtitle="Autodeclaração registrada no cadastro" actions={acaoCsvGrafico('Cor raça', stats.corRaca)}>
+          <ChartCard title="Cor/raça" subtitle="Autodeclaração registrada no cadastro" actions={acaoPngGrafico('Cor raça', stats.corRaca)}>
             <BarChart data={stats.corRaca} vertical={false} />
           </ChartCard>
 
-          <ChartCard title="Identidade de gênero" subtitle="Top categorias informadas" actions={acaoCsvGrafico('Identidade de gênero', stats.genero)}>
+          <ChartCard title="Identidade de gênero" subtitle="Top categorias informadas" actions={acaoPngGrafico('Identidade de gênero', stats.genero)}>
             <BarChart data={stats.genero} vertical={false} />
           </ChartCard>
 
-          <ChartCard title="Principais cidades" subtitle="Top 5 com mais cadastros" className="chart-card--wide" actions={acaoCsvGrafico('Principais cidades', stats.cidades)}>
+          <ChartCard title="Principais cidades" subtitle="Top 5 com mais cadastros" className="chart-card--wide" actions={acaoPngGrafico('Principais cidades', stats.cidades)}>
             <BarChart data={stats.cidades} vertical={false} />
           </ChartCard>
         </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { cadastros as api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
+import { cadastros as api } from '../services/api'
 import { baixarBlob } from '../utils/exportCsv'
 
 const badge = {
@@ -104,8 +104,8 @@ export default function ListaCadastros() {
   const exportarCadastros = async () => {
     setExportando(true)
     try {
-      const blob = await api.exportarCsv(paramsAtuais())
-      baixarBlob(blob, 'cadastros_asap.csv')
+      const blob = await api.exportarCadastrosXlsx(paramsAtuais())
+      baixarBlob(blob, 'cadastros_asap.xlsx')
     } finally {
       setExportando(false)
     }

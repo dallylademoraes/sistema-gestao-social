@@ -1,7 +1,9 @@
-const SHEET_NAME = 'cadastros';
 const TOKEN = 'troque-este-token-por-um-segredo-grande';
 
-const HEADERS = [
+const SHEETS = {
+  cadastros: {
+    name: 'cadastros',
+    headers: [
   'id',
   'nome',
   'nome_social',
@@ -31,7 +33,22 @@ const HEADERS = [
   'observacoes',
   'criado_em',
   'atualizado_em',
-];
+    ],
+  },
+  usuarios: {
+    name: 'usuarios',
+    headers: [
+      'id',
+      'nome',
+      'email',
+      'senha_hash',
+      'perfil',
+      'ativo',
+      'criado_em',
+      'atualizado_em',
+    ],
+  },
+};
 
 function doPost(e) {
   try {
@@ -41,12 +58,16 @@ function doPost(e) {
     }
 
     const payload = body.payload || {};
-    if (body.action === 'list') return json({ ok: true, data: listRows() });
-    if (body.action === 'get') return json({ ok: true, data: getRow(Number(payload.id)) });
-    if (body.action === 'create') return json({ ok: true, data: createRow(payload.row || {}) });
-    if (body.action === 'update') return json({ ok: true, data: updateRow(Number(payload.id), payload.row || {}) });
+    const sheetName = String(payload.sheet || body.sheet || 'cadastros').toLowerCase();
+    const config = getSheetConfig(sheetName);
+
+    if (body.action === 'list') return json({ ok: true, data: listRows(config) });
+    if (body.action === 'get') return json({ ok: true, data: getRow(config, Number(payload.id)) });
+    if (body.action === 'find') return json({ ok: true, data: findRow(config, payload.field, payload.value) });
+    if (body.action === 'create') return json({ ok: true, data: createRow(config, payload.row || {}) });
+    if (body.action === 'update') return json({ ok: true, data: updateRow(config, Number(payload.id), payload.row || {}) });
     if (body.action === 'delete') {
-      deleteRow(Number(payload.id));
+      deleteRow(config, Number(payload.id));
       return json({ ok: true, data: true });
     }
     return json({ ok: false, error: 'Ação inválida' });
@@ -61,68 +82,72 @@ function json(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function sheet() {
+function getSheetConfig(sheetName) {
+  return SHEETS[sheetName] || SHEETS.cadastros;
+}
+
+function sheet(config) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sh = ss.getSheetByName(SHEET_NAME);
-  if (!sh) sh = ss.insertSheet(SHEET_NAME);
-  ensureHeaders(sh);
+  let sh = ss.getSheetByName(config.name);
+  if (!sh) sh = ss.insertSheet(config.name);
+  ensureHeaders(sh, config.headers);
   return sh;
 }
 
-function ensureHeaders(sh) {
-  const current = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), HEADERS.length)).getValues()[0];
-  const missing = HEADERS.some((h, i) => current[i] !== h);
+function ensureHeaders(sh, headers) {
+  const current = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), headers.length)).getValues()[0];
+  const missing = headers.some((h, i) => current[i] !== h);
   if (missing) {
-    sh.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
     sh.setFrozenRows(1);
   }
 }
 
-function listRows() {
-  const sh = sheet();
+function listRows(config) {
+  const sh = sheet(config);
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return [];
-  return sh.getRange(2, 1, lastRow - 1, HEADERS.length).getValues().map(valuesToObject);
+  return sh.getRange(2, 1, lastRow - 1, config.headers.length).getValues().map((values) => valuesToObject(config, values));
 }
 
-function getRow(id) {
-  const found = findRowIndex(id);
+function getRow(config, id) {
+  const found = findRowIndex(config, id);
   if (!found) return null;
-  return valuesToObject(sheet().getRange(found, 1, 1, HEADERS.length).getValues()[0]);
+  return valuesToObject(config, sheet(config).getRange(found, 1, 1, config.headers.length).getValues()[0]);
 }
 
-function createRow(row) {
-  const sh = sheet();
-  const newId = nextId();
+function createRow(config, row) {
+  const sh = sheet(config);
+  const newId = nextId(config);
   const now = new Date().toISOString();
   const normalized = Object.assign({}, row, {
     id: newId,
-    status: row.status || 'pendente',
+    status: row.status || (config.name === 'cadastros' ? 'pendente' : undefined),
     criado_em: row.criado_em || now,
     atualizado_em: row.atualizado_em || now,
   });
-  sh.appendRow(HEADERS.map(h => normalized[h] === undefined || normalized[h] === null ? '' : normalized[h]));
-  return getRow(newId);
+  sh.appendRow(config.headers.map(h => normalized[h] === undefined || normalized[h] === null ? '' : normalized[h]));
+  return getRow(config, newId);
 }
 
-function updateRow(id, row) {
-  const sh = sheet();
-  const found = findRowIndex(id);
+function updateRow(config, id, row) {
+  const sh = sheet(config);
+  const found = findRowIndex(config, id);
   if (!found) throw new Error('Cadastro não encontrado');
-  const current = valuesToObject(sh.getRange(found, 1, 1, HEADERS.length).getValues()[0]);
+  const current = valuesToObject(config, sh.getRange(found, 1, 1, config.headers.length).getValues()[0]);
   const updated = Object.assign({}, current, row, { id: id, atualizado_em: new Date().toISOString() });
-  sh.getRange(found, 1, 1, HEADERS.length).setValues([HEADERS.map(h => updated[h] === undefined || updated[h] === null ? '' : updated[h])]);
-  return getRow(id);
+  sh.getRange(found, 1, 1, config.headers.length).setValues([config.headers.map(h => updated[h] === undefined || updated[h] === null ? '' : updated[h])]);
+  return getRow(config, id);
 }
 
-function deleteRow(id) {
-  const found = findRowIndex(id);
+function deleteRow(config, id) {
+  const found = findRowIndex(config, id);
   if (!found) throw new Error('Cadastro não encontrado');
-  sheet().deleteRow(found);
+  sheet(config).deleteRow(found);
 }
 
-function findRowIndex(id) {
-  const sh = sheet();
+function findRowIndex(config, id) {
+  const sh = sheet(config);
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return null;
   const ids = sh.getRange(2, 1, lastRow - 1, 1).getValues();
@@ -132,18 +157,48 @@ function findRowIndex(id) {
   return null;
 }
 
-function nextId() {
-  const rows = listRows();
+function findRow(config, field, value) {
+  if (!field) return null;
+  const rows = listRows(config);
+  const target = String(value ?? '').trim().toLowerCase();
+  return rows.find((row) => String(row[field] ?? '').trim().toLowerCase() === target) || null;
+}
+
+function nextId(config) {
+  const rows = listRows(config);
   return rows.reduce((max, row) => Math.max(max, Number(row.id) || 0), 0) + 1;
 }
 
-function valuesToObject(values) {
+function valuesToObject(config, values) {
   const row = {};
-  HEADERS.forEach((h, i) => {
+  config.headers.forEach((h, i) => {
     const value = values[i];
     row[h] = value instanceof Date ? value.toISOString() : value;
   });
   return row;
+}
+
+function popularUsuariosFake() {
+  limparUsuarios();
+  const fakeRows = [
+    {
+      nome: 'Coordenadora ASAP',
+      email: 'admin@asap.org',
+      senha_hash: 'troque-essa-senha',
+      perfil: 'coordenadora',
+      ativo: true,
+    },
+  ];
+  fakeRows.forEach((row) => createRow(SHEETS.usuarios, row));
+  SpreadsheetApp.getUi().alert(`${fakeRows.length} usuários fake foram criados na aba usuarios.`);
+}
+
+function limparUsuarios() {
+  const sh = sheet(SHEETS.usuarios);
+  const lastRow = sh.getLastRow();
+  if (lastRow > 1) {
+    sh.deleteRows(2, lastRow - 1);
+  }
 }
 
 function popularCadastrosFake() {

@@ -8,6 +8,7 @@ import shutil
 import uuid
 import mimetypes
 from typing import Optional, List
+import xlsxwriter
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import Response
@@ -150,6 +151,8 @@ def _idade_em_anos(data_nascimento: date) -> int:
 
 
 def _validar_data_nascimento(data_nascimento: date) -> None:
+    if data_nascimento is None:
+        return
     if data_nascimento > date.today():
         raise HTTPException(status_code=400, detail="Data de nascimento não pode ser futura")
     if data_nascimento.year < 1900:
@@ -331,12 +334,15 @@ def _pendencias_aprovacao(cadastro: Cadastro) -> list[str]:
         pendencias.append("dados básicos incompletos (nome e telefone)")
     if not _cpf_valido(cadastro.cpf):
         pendencias.append("CPF inválido")
-    try:
-        _validar_data_nascimento(cadastro.data_nascimento)
-        if _idade_em_anos(cadastro.data_nascimento) < 16:
-            pendencias.append("idade mínima de 16 anos")
-    except HTTPException as exc:
-        pendencias.append(str(exc.detail))
+    if cadastro.data_nascimento is None:
+        pendencias.append("data de nascimento ausente")
+    else:
+        try:
+            _validar_data_nascimento(cadastro.data_nascimento)
+            if _idade_em_anos(cadastro.data_nascimento) < 16:
+                pendencias.append("idade mínima de 16 anos")
+        except HTTPException as exc:
+            pendencias.append(str(exc.detail))
     return pendencias
 
 
@@ -622,6 +628,176 @@ def exportar_graficos_csv(
 ):
     cadastros = _listar_cadastros_filtrados(db, busca, status, pcd, genero, lgpd_concluido)
     return _response_csv(_nome_arquivo_export("resumo_graficos_asap"), _linhas_resumo_graficos(cadastros))
+
+
+@router.get("/export/cadastros.xlsx")
+def exportar_cadastros_xlsx(
+    busca: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    pcd: Optional[bool] = Query(None),
+    genero: Optional[str] = Query(None),
+    lgpd_concluido: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(usuario_atual),
+):
+    cadastros = _listar_cadastros_filtrados(db, busca, status, pcd, genero, lgpd_concluido)
+    linhas = [[
+        "ID",
+        "Nome completo",
+        "Nome social",
+        "CPF",
+        "RG",
+        "Órgão expedidor",
+        "Data de nascimento",
+        "E-mail",
+        "Telefone",
+        "Endereço",
+        "Cidade",
+        "UF",
+        "Estado civil",
+        "Cor/raça",
+        "Identidade de gênero",
+        "PCD",
+        "Renda média",
+        "Com encaminhamento",
+        "Encaminhamento realizado",
+        "Status",
+        "Termos LGPD",
+        "Foto anexada",
+        "Comprovante anexado",
+        "Documento pessoal anexado",
+        "Pronto para aprovação",
+        "Pendências de bloqueio",
+        "Alertas",
+        "Criado em",
+        "Observações",
+    ]]
+    for cadastro in cadastros:
+        pendencias = _pendencias_aprovacao(cadastro)
+        alertas = _alertas_aprovacao(cadastro)
+        linhas.append([
+            cadastro.id,
+            cadastro.nome,
+            cadastro.nome_social,
+            cadastro.cpf,
+            cadastro.rg,
+            cadastro.orgao_expedidor,
+            cadastro.data_nascimento,
+            cadastro.email,
+            cadastro.telefone,
+            cadastro.endereco,
+            cadastro.cidade,
+            cadastro.uf,
+            cadastro.estado_civil,
+            cadastro.cor_raca,
+            cadastro.identidade_genero,
+            cadastro.pcd,
+            cadastro.renda_media,
+            cadastro.com_encaminhamento,
+            cadastro.encaminhamento_realizado,
+            cadastro.status,
+            "Concluído" if cadastro.lgpd_concluido else "Pendente",
+            bool(cadastro.foto_url),
+            bool(cadastro.comprovante_residencia_url),
+            bool(cadastro.documento_pessoal_url),
+            not pendencias,
+            ", ".join(pendencias),
+            ", ".join(alertas),
+            cadastro.criado_em,
+            cadastro.observacoes,
+        ])
+
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    ws = workbook.add_worksheet('Cadastros')
+    for r, row in enumerate(linhas):
+        for c, cell in enumerate(row):
+            ws.write(r, c, cell)
+    workbook.close()
+    output.seek(0)
+    return Response(content=output.read(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={
+        'Content-Disposition': header_content_disposition_attachment(_nome_arquivo_export('cadastros_asap', 'xlsx'))
+    })
+
+
+@router.get("/export/graficos.xlsx")
+def exportar_graficos_xlsx(
+    busca: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    pcd: Optional[bool] = Query(None),
+    genero: Optional[str] = Query(None),
+    lgpd_concluido: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(usuario_atual),
+):
+    cadastros = _listar_cadastros_filtrados(db, busca, status, pcd, genero, lgpd_concluido)
+    linhas = _linhas_resumo_graficos(cadastros)
+
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    ws = workbook.add_worksheet('Resumo')
+    for r, row in enumerate(linhas):
+        for c, cell in enumerate(row):
+            ws.write(r, c, cell)
+
+    # parse blocks for charts
+    status_block = []
+    monthly_block = []
+    i = 0
+    while i < len(linhas):
+        row = linhas[i]
+        if len(row) >= 1 and row[0] == 'Cadastros por status':
+            j = i + 2
+            while j < len(linhas) and linhas[j] and len(linhas[j]) >= 2 and isinstance(linhas[j][1], int):
+                status_block.append((linhas[j][0], linhas[j][1]))
+                j += 1
+            i = j
+            continue
+        if len(row) >= 1 and row[0] == 'Novos cadastros por mês':
+            j = i + 2
+            while j < len(linhas) and linhas[j] and len(linhas[j]) >= 2 and isinstance(linhas[j][1], int):
+                monthly_block.append((linhas[j][0], linhas[j][1]))
+                j += 1
+            i = j
+            continue
+        i += 1
+
+    chart_ws = workbook.add_worksheet('Charts')
+    row = 0
+    if status_block:
+        chart_ws.write_row(row, 0, ['Status', 'Quantidade'])
+        for k, (label, val) in enumerate(status_block, start=1):
+            chart_ws.write(k, 0, label)
+            chart_ws.write(k, 1, val)
+        last = len(status_block)
+        pie = workbook.add_chart({'type': 'pie'})
+        pie.add_series({
+            'name': 'Cadastros por status',
+            'categories': f"=Charts!$A$2:$A${last+1}",
+            'values': f"=Charts!$B$2:$B${last+1}",
+        })
+        chart_ws.insert_chart(0, 3, pie, {'x_scale': 1.2, 'y_scale': 1.2})
+        row = last + 3
+
+    if monthly_block:
+        chart_ws.write_row(row, 0, ['Mês', 'Quantidade'])
+        for k, (label, val) in enumerate(monthly_block, start=row+1):
+            chart_ws.write(k, 0, label)
+            chart_ws.write(k, 1, val)
+        lastm = row + len(monthly_block)
+        col_chart = workbook.add_chart({'type': 'column'})
+        col_chart.add_series({
+            'name': 'Novos cadastros por mês',
+            'categories': f"=Charts!$A${row+2}:$A${lastm+1}",
+            'values': f"=Charts!$B${row+2}:$B${lastm+1}",
+        })
+        chart_ws.insert_chart(row, 3, col_chart, {'x_scale': 1.6, 'y_scale': 1.6})
+
+    workbook.close()
+    output.seek(0)
+    return Response(content=output.read(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={
+        'Content-Disposition': header_content_disposition_attachment(_nome_arquivo_export('resumo_graficos_asap', 'xlsx'))
+    })
 
 
 @router.post("/", response_model=CadastroOut, status_code=201)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
 
 from app.db.session import Base
@@ -8,7 +8,7 @@ class CadastroLGPD(Base):
     __tablename__ = "cadastros_lgpd"
 
     id = Column(Integer, primary_key=True)
-    cadastro_id = Column(Integer, ForeignKey("cadastros.id"), unique=True, nullable=False, index=True)
+    cadastro_id = Column(Integer, unique=True, nullable=False, index=True)
     base_legal = Column(String(100), nullable=False, default="consentimento")
     status_lgpd = Column(String(30), nullable=False, default="pendente")  # pendente | consentido | revogado
     retencao_ate = Column(DateTime(timezone=True), nullable=True)

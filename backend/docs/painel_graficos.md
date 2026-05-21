@@ -1,5 +1,9 @@
 # Painel de Estatísticas e Exportação
 
+<p align="center">
+  <img src="./ASAP_icon_hd.png" alt="ASAP" width="120" />
+</p>
+
 ## Visão geral
 
 Esta funcionalidade adiciona um painel de estatísticas que gera gráficos automaticamente a partir dos cadastros existentes e permite exportar os dados em CSV ou PDF. O objetivo é aumentar o escopo do projeto com uma feature de alto valor: visualização rápida de métricas e extração de relatórios para tomada de decisão.

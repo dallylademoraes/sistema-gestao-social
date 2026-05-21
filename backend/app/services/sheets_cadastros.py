@@ -124,6 +124,12 @@ def _row_to_cadastro(row: dict[str, Any]) -> Cadastro:
     return cadastro
 
 
+def _row_vazia(row: dict[str, Any]) -> bool:
+    if not row:
+        return True
+    return not row.get("id") or all(value in (None, "") for value in row.values())
+
+
 def _cadastro_to_row(cadastro: Cadastro) -> dict[str, Any]:
     return {field: _serialize(getattr(cadastro, field, None)) for field in CADASTRO_FIELDS}
 
@@ -203,7 +209,7 @@ def aquecer_cache_sheets() -> None:
 def listar_cadastros_sheets(force_refresh: bool = False) -> list[Cadastro]:
     if force_refresh:
         rows = _refresh_cache_sync()
-        return [_row_to_cadastro(row) for row in rows]
+        return [_row_to_cadastro(row) for row in rows if not _row_vazia(row)]
 
     with _cache_lock:
         rows = list(_cache_rows) if _cache_rows is not None else None
@@ -214,7 +220,7 @@ def listar_cadastros_sheets(force_refresh: bool = False) -> list[Cadastro]:
     elif idade > LIST_CACHE_TTL_SECONDS:
         _schedule_refresh()
 
-    return [_row_to_cadastro(row) for row in rows]
+    return [_row_to_cadastro(row) for row in rows if not _row_vazia(row)]
 
 
 def buscar_cadastro_sheets(cadastro_id: int) -> Optional[Cadastro]:

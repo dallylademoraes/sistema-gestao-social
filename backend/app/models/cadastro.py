@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Text
 from sqlalchemy.sql import func
 from app.db.session import Base
 
@@ -45,7 +45,7 @@ class Cadastro(Base):
 
     # Controle
     status = Column(String, default="pendente")  # pendente | ativo | inativo
-    aprovado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    aprovado_por_id = Column(Integer, nullable=True)
     observacoes = Column(Text)
 
     criado_em = Column(DateTime(timezone=True), server_default=func.now())

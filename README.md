@@ -1,4 +1,4 @@
-# ASAP — Sistema de Cadastro
+# ASAP — Sistema de Gestão
 
 ## Stack
 - **Backend:** Python 3.11 + FastAPI + PostgreSQL + SQLAlchemy

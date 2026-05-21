@@ -1,16 +1,29 @@
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
+from passlib.exc import UnknownHashError
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.usuario import Usuario
+from app.services.sheets_usuarios import buscar_usuario_sheets, usuarios_sheets_enabled
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+
+
+def _get_token_from_header_or_cookie(request: Request) -> str:
+    # Prefer Authorization header, fall back to cookie named 'access_token'
+    auth = request.headers.get("Authorization")
+    if auth and auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1]
+    token = request.cookies.get("access_token")
+    if token:
+        return token
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
 
 
 def hash_senha(senha: str) -> str:
@@ -18,7 +31,10 @@ def hash_senha(senha: str) -> str:
 
 
 def verificar_senha(senha: str, hash: str) -> bool:
-    return pwd_context.verify(senha, hash)
+    try:
+        return pwd_context.verify(senha, hash)
+    except UnknownHashError:
+        return False
 
 
 def criar_token(data: dict) -> str:
@@ -49,7 +65,7 @@ def validar_token_redefinicao(token: str) -> str:
         raise ValueError("Token invalido ou expirado") from exc
 
 
-def usuario_atual(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> Usuario:
+def usuario_atual(token: str = Depends(_get_token_from_header_or_cookie), db: Session = Depends(get_db)) -> Usuario:
     erro = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
@@ -59,6 +75,10 @@ def usuario_atual(token: str = Depends(oauth2_scheme), db: Session = Depends(get
     except JWTError:
         raise erro
     usuario = db.query(Usuario).filter(Usuario.email == email).first()
+    if (not usuario or not getattr(usuario, "senha_hash", None) or not getattr(usuario, "perfil", None)) and usuarios_sheets_enabled():
+        usuario = buscar_usuario_sheets(email=email)
+    if not usuario or not getattr(usuario, "senha_hash", None) or not getattr(usuario, "perfil", None):
+        usuario = db.query(Usuario).filter(Usuario.email == email).first()
     if not usuario:
         raise erro
     return usuario
