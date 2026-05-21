@@ -81,6 +81,7 @@ export default function NovoCadastro() {
   const sigRef = useRef(null)
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [salvandoPendente, setSalvandoPendente] = useState(false)
   const [previaCarregando, setPreviaCarregando] = useState(null)
   const podeCriarOuEditarCadastro = ['coordenadora', 'assistente'].includes(usuario?.perfil)
 
@@ -161,6 +162,22 @@ export default function NovoCadastro() {
     }
   }
 
+  const salvarParaAssinarNoTablet = async () => {
+    const f = formRef.current
+    if (!f) return
+    setErro('')
+    if (!f.reportValidity()) return
+    setSalvandoPendente(true)
+    try {
+      const r = await api.criarPendenteAssinatura(collectDadosCadastro(f))
+      navigate(`/cadastros/${r.data.id}`)
+    } catch (err) {
+      setErro(formatarErroApi(err))
+    } finally {
+      setSalvandoPendente(false)
+    }
+  }
+
   return (
     <div className="centered-form-shell">
       <button className="btn-back" onClick={() => navigate(-1)} style={{ marginBottom: 12 }}>← Voltar</button>
@@ -208,7 +225,7 @@ export default function NovoCadastro() {
 
           <Secao titulo="Termos e assinatura" />
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0, marginBottom: 12 }}>
-            Gere uma prévia em PDF com os dados já preenchidos. No envio final, os dois termos serão gravados com a mesma assinatura.
+            Gere uma prévia em PDF com os dados já preenchidos. O cadastro pode ser assinado aqui ou salvo como pendente para a pessoa atendida assinar no tablet.
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
             <button type="button" className="btn-secondary" disabled={previaCarregando === 'lgpd'} onClick={() => baixarPrevia('lgpd')}>
@@ -249,6 +266,9 @@ export default function NovoCadastro() {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '1rem' }}>
           <button type="button" className="btn-secondary" onClick={() => navigate(-1)}>
             Cancelar
+          </button>
+          <button type="button" className="btn-secondary" disabled={salvandoPendente || salvando} onClick={salvarParaAssinarNoTablet}>
+            {salvandoPendente ? 'Salvando...' : 'Salvar para assinar no tablet'}
           </button>
           <button type="submit" disabled={salvando} className="btn-primary">
             {salvando ? 'Salvando...' : 'Salvar cadastro'}

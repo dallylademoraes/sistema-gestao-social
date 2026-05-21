@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT_WINDOW_MINUTES: int = 10
     UPLOAD_MAX_BYTES: int = 10485760
     STORAGE_PROVIDER: str = "local"
+    CADASTROS_STORAGE: str = "database"
+    GOOGLE_APPS_SCRIPT_URL: str | None = None
+    GOOGLE_APPS_SCRIPT_TOKEN: str | None = None
     S3_BUCKET_NAME: str | None = None
     S3_REGION: str | None = None
     BLOB_CONNECTION_STRING: str | None = None

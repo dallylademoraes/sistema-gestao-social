@@ -349,6 +349,10 @@ h6 {
 
 .chart-card-header {
   margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 .chart-card-title {
@@ -363,6 +367,34 @@ h6 {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--text-soft);
+}
+
+.chart-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.btn-compact {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--surface-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.btn-compact:hover {
+  border-color: #6aa78f;
+  color: var(--text-main);
+}
+
+.btn-compact:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .chart-empty {

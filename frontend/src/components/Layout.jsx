@@ -41,7 +41,10 @@ export default function Layout() {
               <NavLink to="/" end style={({ isActive }) => linkStyle(isActive)}>Painel</NavLink>
               <NavLink to="/cadastros" style={({ isActive }) => linkStyle(isActive)}>Cadastros</NavLink>
               {podeCriarOuEditarCadastro && (
-                <NavLink to="/cadastros/novo" style={({ isActive }) => linkStyle(isActive)}>Novo cadastro</NavLink>
+                <>
+                  <NavLink to="/cadastros/novo" style={({ isActive }) => linkStyle(isActive)}>Novo cadastro</NavLink>
+                  <NavLink to="/assinaturas-pendentes" style={({ isActive }) => linkStyle(isActive)}>Assinaturas pendentes</NavLink>
+                </>
               )}
             </div>
           </div>

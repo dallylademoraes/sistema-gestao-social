@@ -36,6 +36,7 @@ export default function DetalheCadastro() {
   const [motivoExclusaoLgpd, setMotivoExclusaoLgpd] = useState('')
   const [baixandoPdf, setBaixandoPdf] = useState(false)
   const [erroAprovar, setErroAprovar] = useState('')
+  const [linkAssinaturaCopiado, setLinkAssinaturaCopiado] = useState(false)
 
   const carregarCadastro = async () => {
     const r = await api.buscar(id)
@@ -45,6 +46,12 @@ export default function DetalheCadastro() {
   useEffect(() => {
     carregarCadastro()
   }, [id])
+
+  useEffect(() => {
+    if (!cadastro || cadastro.lgpd_concluido) return undefined
+    const timer = setInterval(carregarCadastro, 5000)
+    return () => clearInterval(timer)
+  }, [id, cadastro?.lgpd_concluido])
 
   const aprovar = async () => {
     setErroAprovar('')
@@ -115,14 +122,26 @@ export default function DetalheCadastro() {
     }
   }
 
+  const copiarLinkAssinatura = async () => {
+    const url = `${window.location.origin}/cadastros/${id}/assinar`
+    try {
+      await navigator.clipboard.writeText(url)
+      setLinkAssinaturaCopiado(true)
+      setTimeout(() => setLinkAssinaturaCopiado(false), 2500)
+    } catch {
+      window.prompt('Copie o link para abrir no tablet:', url)
+    }
+  }
+
   if (!cadastro) return <p style={{ color: 'var(--text-soft)', fontSize: 14 }}>Carregando...</p>
 
   const podeCriarOuEditarCadastro = ['coordenadora', 'assistente'].includes(usuario?.perfil)
-  const podeAprovar = ['coordenadora', 'ti'].includes(usuario?.perfil)
+  const podeAprovar = usuario?.perfil === 'coordenadora'
   const podeExcluir = usuario?.perfil === 'coordenadora'
   const lgpdConcluido = Boolean(cadastro.lgpd_concluido)
   const prontoAprovacao = Boolean(cadastro.pronto_aprovacao)
   const pendenciasAprovacao = cadastro.pendencias_aprovacao || []
+  const alertasAprovacao = cadastro.alertas_aprovacao || []
 
   const docsUpload = [
     { tipo: 'foto', label: 'Foto', url: cadastro.foto_url, dica: 'Arquivo de identificação visual do cadastro.', acao: 'Enviar foto' },
@@ -159,7 +178,25 @@ export default function DetalheCadastro() {
             </span>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {podeCriarOuEditarCadastro && !lgpdConcluido && (
+            <>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => navigate(`/cadastros/${id}/assinar`)}
+              >
+                Assinar no tablet
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={copiarLinkAssinatura}
+              >
+                {linkAssinaturaCopiado ? 'Link copiado' : 'Copiar link'}
+              </button>
+            </>
+          )}
           <button
             type="button"
             className="btn-secondary"
@@ -207,7 +244,19 @@ export default function DetalheCadastro() {
           Aprovação bloqueada
           {pendenciasAprovacao.length > 0
             ? `: ${pendenciasAprovacao.join(', ')}.`
-            : ': anexe foto, comprovante de residência, documento pessoal e confira os termos gerados no cadastro.'}
+            : ': confira os termos gerados no cadastro e os dados essenciais.'}
+        </div>
+      )}
+
+      {cadastro.status === 'pendente' && prontoAprovacao && alertasAprovacao.length > 0 && (
+        <div style={{ marginBottom: '1rem', border: '1px solid var(--badge-pending-text)', background: 'var(--badge-pending-bg)', color: 'var(--text-main)', padding: '10px 12px', borderRadius: 10, fontSize: 13 }}>
+          Alertas de aprovação: {alertasAprovacao.join(', ')}. {podeAprovar ? `${usuario?.nome || 'Usuário coordenador'} pode aprovar mesmo assim.` : 'Somente um usuário coordenador pode aprovar.'}
+        </div>
+      )}
+
+      {!lgpdConcluido && podeCriarOuEditarCadastro && (
+        <div style={{ marginBottom: '1rem', border: '1px solid var(--border)', background: 'var(--surface-card)', padding: '10px 12px', borderRadius: 10, fontSize: 13 }}>
+          Aguardando assinatura. Esta tela atualiza automaticamente quando a pessoa atendida assinar no tablet.
         </div>
       )}
 

@@ -1,5 +1,7 @@
 from datetime import date, datetime, timezone
 import base64
+import csv
+import io
 import os
 import re
 import shutil
@@ -17,7 +19,9 @@ from app.models.cadastro import Cadastro
 from app.models.cadastro_lgpd import CadastroLGPD
 from app.models.usuario import Usuario
 from app.schemas.cadastro import (
+    CadastroAssinaturaRequest,
     CadastroCreate,
+    CadastroDadosBase,
     CadastroUpdate,
     CadastroOut,
     CadastroTermoPreviewRequest,
@@ -35,6 +39,15 @@ from app.services.arquivos import (
     responder_download,
     header_content_disposition_attachment,
 )
+from app.services.sheets_cadastros import (
+    atualizar_cadastro_sheets,
+    buscar_cadastro_sheets,
+    cpf_existe_sheets,
+    criar_cadastro_sheets,
+    excluir_cadastro_sheets,
+    listar_cadastros_sheets,
+    sheets_enabled,
+)
 
 router = APIRouter(prefix="/cadastros", tags=["cadastros"])
 
@@ -42,6 +55,7 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 STATUS_VALIDOS = {"pendente", "ativo", "inativo"}
+MESES_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 
 def _somente_digitos(value: str) -> str:
@@ -92,6 +106,37 @@ def _nome_pdf_termo_armazenado(nome_titular: str, tipo_doc: str) -> str:
     raise ValueError("tipo_doc inválido para nome de termo")
 
 
+def _nome_arquivo_export(prefixo: str, extensao: str = "csv") -> str:
+    agora = datetime.now().strftime("%Y%m%d_%H%M")
+    return f"{prefixo}_{agora}.{extensao}"
+
+
+def _valor_csv(valor):
+    if isinstance(valor, bool):
+        return "Sim" if valor else "Não"
+    if isinstance(valor, (date, datetime)):
+        return valor.isoformat()
+    if valor is None:
+        return ""
+    texto = str(valor)
+    if texto.startswith(("=", "+", "-", "@")):
+        return f"'{texto}"
+    return texto
+
+
+def _response_csv(nome_arquivo: str, linhas: list[list[object]]) -> Response:
+    buffer = io.StringIO()
+    buffer.write("sep=;\n")
+    writer = csv.writer(buffer, delimiter=";", lineterminator="\n")
+    for linha in linhas:
+        writer.writerow([_valor_csv(valor) for valor in linha])
+    return Response(
+        content=buffer.getvalue().encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": header_content_disposition_attachment(nome_arquivo)},
+    )
+
+
 def _formatar_cpf(cpf: str) -> str:
     digits = _somente_digitos(cpf)
     return f"{digits[0:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:11]}"
@@ -118,6 +163,101 @@ def _validar_status(status: str) -> None:
         raise HTTPException(status_code=400, detail=f"Status inválido. Use: {sorted(STATUS_VALIDOS)}")
 
 
+def _query_cadastros_filtrada(
+    db: Session,
+    busca: Optional[str] = None,
+    status: Optional[str] = None,
+    pcd: Optional[bool] = None,
+    genero: Optional[str] = None,
+    lgpd_concluido: Optional[bool] = None,
+):
+    q = db.query(Cadastro)
+    if busca:
+        q = q.filter(
+            Cadastro.nome.ilike(f"%{busca}%") | Cadastro.cpf.contains(busca)
+        )
+    if status:
+        q = q.filter(Cadastro.status == status)
+    if pcd is not None:
+        q = q.filter(Cadastro.pcd == pcd)
+    if genero:
+        q = q.filter(Cadastro.identidade_genero == genero)
+    if lgpd_concluido is not None:
+        tem_ambos = and_(
+            Cadastro.termo_lgpd_url.isnot(None),
+            Cadastro.termo_lgpd_url != "",
+            Cadastro.termo_imagem_url.isnot(None),
+            Cadastro.termo_imagem_url != "",
+        )
+        if lgpd_concluido:
+            q = q.filter(tem_ambos)
+        else:
+            q = q.filter(
+                or_(
+                    Cadastro.termo_lgpd_url.is_(None),
+                    Cadastro.termo_lgpd_url == "",
+                    Cadastro.termo_imagem_url.is_(None),
+                    Cadastro.termo_imagem_url == "",
+                )
+            )
+    return q
+
+
+def _cadastro_corresponde_filtros(
+    cadastro: Cadastro,
+    busca: Optional[str] = None,
+    status: Optional[str] = None,
+    pcd: Optional[bool] = None,
+    genero: Optional[str] = None,
+    lgpd_concluido: Optional[bool] = None,
+) -> bool:
+    if busca:
+        termo = busca.lower()
+        if termo not in (cadastro.nome or "").lower() and busca not in (cadastro.cpf or ""):
+            return False
+    if status and cadastro.status != status:
+        return False
+    if pcd is not None and cadastro.pcd != pcd:
+        return False
+    if genero and cadastro.identidade_genero != genero:
+        return False
+    if lgpd_concluido is not None and cadastro.lgpd_concluido != lgpd_concluido:
+        return False
+    return True
+
+
+def _listar_cadastros_filtrados(
+    db: Session,
+    busca: Optional[str] = None,
+    status: Optional[str] = None,
+    pcd: Optional[bool] = None,
+    genero: Optional[str] = None,
+    lgpd_concluido: Optional[bool] = None,
+) -> list[Cadastro]:
+    if not sheets_enabled():
+        return _query_cadastros_filtrada(db, busca, status, pcd, genero, lgpd_concluido).order_by(Cadastro.criado_em.desc()).all()
+
+    cadastros = [
+        cadastro
+        for cadastro in listar_cadastros_sheets()
+        if _cadastro_corresponde_filtros(cadastro, busca, status, pcd, genero, lgpd_concluido)
+    ]
+    return sorted(cadastros, key=lambda c: c.criado_em or datetime.min, reverse=True)
+
+
+def _buscar_cadastro(db: Session, cadastro_id: int) -> Optional[Cadastro]:
+    if sheets_enabled():
+        return buscar_cadastro_sheets(cadastro_id)
+    return db.query(Cadastro).filter(Cadastro.id == cadastro_id).first()
+
+
+def _cpf_ja_cadastrado(db: Session, cpfs: list[str], ignorar_id: Optional[int] = None) -> bool:
+    if sheets_enabled():
+        return cpf_existe_sheets(cpfs, ignorar_id=ignorar_id)
+    existente = db.query(Cadastro).filter(Cadastro.cpf.in_(cpfs)).first()
+    return bool(existente and existente.id != ignorar_id)
+
+
 def _obter_ou_criar_lgpd(db: Session, cadastro_id: int) -> CadastroLGPD:
     lgpd = db.query(CadastroLGPD).filter(CadastroLGPD.cadastro_id == cadastro_id).first()
     if not lgpd:
@@ -128,6 +268,8 @@ def _obter_ou_criar_lgpd(db: Session, cadastro_id: int) -> CadastroLGPD:
 
 
 def _obter_lgpd(db: Session, cadastro_id: int) -> Optional[CadastroLGPD]:
+    if sheets_enabled():
+        return None
     return db.query(CadastroLGPD).filter(CadastroLGPD.cadastro_id == cadastro_id).first()
 
 
@@ -169,16 +311,22 @@ def _gerar_pdfs_termos_e_anexar(c: Cadastro, png: bytes) -> None:
     c.termo_imagem_url = salvar_arquivo_externo(nome_img, pdf_img, "application/pdf")
 
 
-def _pendencias_aprovacao(cadastro: Cadastro) -> list[str]:
-    pendencias: list[str] = []
-    docs_obrigatorios = {
+def _alertas_aprovacao(cadastro: Cadastro) -> list[str]:
+    docs_recomendados = {
         "foto": cadastro.foto_url,
         "comprovante de residência": cadastro.comprovante_residencia_url,
         "documento pessoal": cadastro.documento_pessoal_url,
+    }
+    return [nome for nome, valor in docs_recomendados.items() if not valor]
+
+
+def _pendencias_aprovacao(cadastro: Cadastro) -> list[str]:
+    pendencias: list[str] = []
+    docs_bloqueantes = {
         "termo LGPD": cadastro.termo_lgpd_url,
         "termo de uso de imagem": cadastro.termo_imagem_url,
     }
-    pendencias.extend(nome for nome, valor in docs_obrigatorios.items() if not valor)
+    pendencias.extend(nome for nome, valor in docs_bloqueantes.items() if not valor)
     if not cadastro.telefone or not cadastro.nome:
         pendencias.append("dados básicos incompletos (nome e telefone)")
     if not _cpf_valido(cadastro.cpf):
@@ -196,20 +344,132 @@ def _validar_requisitos_aprovacao(cadastro: Cadastro) -> None:
     pendencias = _pendencias_aprovacao(cadastro)
     if not pendencias:
         return
-    docs = {"foto", "comprovante de residência", "documento pessoal", "termo LGPD", "termo de uso de imagem"}
+    docs = {"termo LGPD", "termo de uso de imagem"}
     faltantes_docs = [p for p in pendencias if p in docs]
     if faltantes_docs:
         raise HTTPException(
             status_code=400,
-            detail=f"Não é possível aprovar sem os documentos: {', '.join(faltantes_docs)}",
+            detail=f"Não é possível aprovar sem os termos assinados: {', '.join(faltantes_docs)}",
         )
     raise HTTPException(status_code=400, detail=pendencias[0].capitalize())
+
+
+def _contar_por_label(valores: list[str]) -> list[tuple[str, int]]:
+    contagem: dict[str, int] = {}
+    for valor in valores:
+        chave = (valor or "").strip() or "Não informado"
+        contagem[chave] = contagem.get(chave, 0) + 1
+    return sorted(contagem.items(), key=lambda item: item[1], reverse=True)
+
+
+def _idade_cadastro(cadastro: Cadastro) -> Optional[int]:
+    if not cadastro.data_nascimento:
+        return None
+    hoje = date.today()
+    return hoje.year - cadastro.data_nascimento.year - (
+        (hoje.month, hoje.day) < (cadastro.data_nascimento.month, cadastro.data_nascimento.day)
+    )
+
+
+def _faixa_etaria_label(cadastro: Cadastro) -> str:
+    idade = _idade_cadastro(cadastro)
+    if idade is None:
+        return "Não informado"
+    if idade <= 17:
+        return "16 a 17"
+    if idade <= 29:
+        return "18 a 29"
+    if idade <= 44:
+        return "30 a 44"
+    if idade <= 59:
+        return "45 a 59"
+    return "60+"
+
+
+def _linhas_serie(titulo: str, dados: list[tuple[str, int]]) -> list[list[object]]:
+    linhas: list[list[object]] = [[], [titulo, "Quantidade"]]
+    linhas.extend([[label, valor] for label, valor in dados])
+    return linhas
+
+
+def _linhas_resumo_graficos(cadastros: list[Cadastro]) -> list[list[object]]:
+    total = len(cadastros)
+    ativos = sum(1 for c in cadastros if c.status == "ativo")
+    pendentes = sum(1 for c in cadastros if c.status == "pendente")
+    inativos = sum(1 for c in cadastros if c.status == "inativo")
+    com_encaminhamento = sum(1 for c in cadastros if c.com_encaminhamento)
+    termos_ok = sum(1 for c in cadastros if c.lgpd_concluido)
+    pcd_sim = sum(1 for c in cadastros if c.pcd)
+
+    linhas: list[list[object]] = [
+        ["Relatório gerado em", datetime.now().strftime("%d/%m/%Y %H:%M")],
+        [],
+        ["Indicador", "Valor"],
+        ["Total de cadastros", total],
+        ["Ativos", ativos],
+        ["Pendentes", pendentes],
+        ["Inativos", inativos],
+        ["Com encaminhamento", com_encaminhamento],
+        ["Termos ok", termos_ok],
+        ["Termos pendentes", total - termos_ok],
+        ["PCD", pcd_sim],
+        ["Não PCD", total - pcd_sim],
+        [],
+        ["Cadastros por status", "Quantidade"],
+        ["Ativos", ativos],
+        ["Pendentes", pendentes],
+        ["Inativos", inativos],
+        [],
+        ["Termos LGPD", "Quantidade"],
+        ["Termos ok", termos_ok],
+        ["Termos pendentes", total - termos_ok],
+        [],
+        ["PCD", "Quantidade"],
+        ["PCD", pcd_sim],
+        ["Não PCD", total - pcd_sim],
+    ]
+    linhas.extend(_linhas_serie("Faixa etária", _contar_por_label([_faixa_etaria_label(c) for c in cadastros])))
+    linhas.extend(_linhas_serie("Encaminhamentos", [
+        ("Com encaminhamento", com_encaminhamento),
+        ("Encaminhamento realizado", sum(1 for c in cadastros if c.encaminhamento_realizado)),
+        ("Sem encaminhamento", max(total - com_encaminhamento, 0)),
+    ]))
+    linhas.extend(_linhas_serie("Renda média", _contar_por_label([c.renda_media for c in cadastros])))
+    linhas.extend(_linhas_serie("Cor/raça", _contar_por_label([c.cor_raca for c in cadastros])))
+    linhas.extend(_linhas_serie("Identidade de gênero", _contar_por_label([c.identidade_genero for c in cadastros])))
+    linhas.extend(_linhas_serie("Principais cidades", [(label, valor) for label, valor in _contar_por_label([c.cidade for c in cadastros]) if label != "Não informado"][:20]))
+
+    hoje = date.today()
+    buckets: list[dict[str, object]] = []
+    for i in range(11, -1, -1):
+        mes = hoje.month - i
+        ano = hoje.year
+        while mes <= 0:
+            mes += 12
+            ano -= 1
+        buckets.append({
+            "ano": ano,
+            "mes": mes,
+            "label": f"{MESES_PT[mes - 1]}/{str(ano)[-2:]}",
+            "value": 0,
+        })
+    indice = {(b["ano"], b["mes"]): idx for idx, b in enumerate(buckets)}
+    for cadastro in cadastros:
+        if not cadastro.criado_em:
+            continue
+        chave = (cadastro.criado_em.year, cadastro.criado_em.month)
+        if chave in indice:
+            buckets[indice[chave]]["value"] += 1
+
+    linhas.extend(_linhas_serie("Novos cadastros por mês", [(b["label"], b["value"]) for b in buckets]))
+    return linhas
 
 
 def _montar_saida_cadastro(db: Session, cadastro: Cadastro) -> CadastroOut:
     lgpd = _obter_lgpd(db, cadastro.id)
     tem_termos = bool(cadastro.termo_lgpd_url) and bool(cadastro.termo_imagem_url)
     pendencias = _pendencias_aprovacao(cadastro)
+    alertas = _alertas_aprovacao(cadastro)
 
     def url_documento(tipo: str, ref: Optional[str]) -> Optional[str]:
         return gerar_url_assinada_download(cadastro.id, tipo, ref) if ref else None
@@ -239,6 +499,7 @@ def _montar_saida_cadastro(db: Session, cadastro: Cadastro) -> CadastroOut:
         lgpd_concluido=tem_termos,
         pronto_aprovacao=not pendencias,
         pendencias_aprovacao=pendencias,
+        alertas_aprovacao=alertas,
         criado_em=cadastro.criado_em,
         foto_url=url_documento("foto", cadastro.foto_url),
         comprovante_residencia_url=url_documento("comprovante", cadastro.comprovante_residencia_url),
@@ -266,37 +527,101 @@ def listar(
     db: Session = Depends(get_db),
     _: Usuario = Depends(usuario_atual),
 ):
-    q = db.query(Cadastro)
-    if busca:
-        q = q.filter(
-            Cadastro.nome.ilike(f"%{busca}%") | Cadastro.cpf.contains(busca)
-        )
-    if status:
-        q = q.filter(Cadastro.status == status)
-    if pcd is not None:
-        q = q.filter(Cadastro.pcd == pcd)
-    if genero:
-        q = q.filter(Cadastro.identidade_genero == genero)
-    if lgpd_concluido is not None:
-        tem_ambos = and_(
-            Cadastro.termo_lgpd_url.isnot(None),
-            Cadastro.termo_lgpd_url != "",
-            Cadastro.termo_imagem_url.isnot(None),
-            Cadastro.termo_imagem_url != "",
-        )
-        if lgpd_concluido:
-            q = q.filter(tem_ambos)
-        else:
-            q = q.filter(
-                or_(
-                    Cadastro.termo_lgpd_url.is_(None),
-                    Cadastro.termo_lgpd_url == "",
-                    Cadastro.termo_imagem_url.is_(None),
-                    Cadastro.termo_imagem_url == "",
-                )
-            )
-    itens = q.order_by(Cadastro.criado_em.desc()).offset(skip).limit(limit).all()
+    itens = _listar_cadastros_filtrados(db, busca, status, pcd, genero, lgpd_concluido)[skip:skip + limit]
     return [_montar_saida_cadastro(db, c) for c in itens]
+
+
+@router.get("/export/cadastros.csv")
+def exportar_cadastros_csv(
+    busca: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    pcd: Optional[bool] = Query(None),
+    genero: Optional[str] = Query(None),
+    lgpd_concluido: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(usuario_atual),
+):
+    cadastros = _listar_cadastros_filtrados(db, busca, status, pcd, genero, lgpd_concluido)
+    linhas: list[list[object]] = [[
+        "ID",
+        "Nome completo",
+        "Nome social",
+        "CPF",
+        "RG",
+        "Órgão expedidor",
+        "Data de nascimento",
+        "E-mail",
+        "Telefone",
+        "Endereço",
+        "Cidade",
+        "UF",
+        "Estado civil",
+        "Cor/raça",
+        "Identidade de gênero",
+        "PCD",
+        "Renda média",
+        "Com encaminhamento",
+        "Encaminhamento realizado",
+        "Status",
+        "Termos LGPD",
+        "Foto anexada",
+        "Comprovante anexado",
+        "Documento pessoal anexado",
+        "Pronto para aprovação",
+        "Pendências de bloqueio",
+        "Alertas",
+        "Criado em",
+        "Observações",
+    ]]
+    for cadastro in cadastros:
+        pendencias = _pendencias_aprovacao(cadastro)
+        alertas = _alertas_aprovacao(cadastro)
+        linhas.append([
+            cadastro.id,
+            cadastro.nome,
+            cadastro.nome_social,
+            cadastro.cpf,
+            cadastro.rg,
+            cadastro.orgao_expedidor,
+            cadastro.data_nascimento,
+            cadastro.email,
+            cadastro.telefone,
+            cadastro.endereco,
+            cadastro.cidade,
+            cadastro.uf,
+            cadastro.estado_civil,
+            cadastro.cor_raca,
+            cadastro.identidade_genero,
+            cadastro.pcd,
+            cadastro.renda_media,
+            cadastro.com_encaminhamento,
+            cadastro.encaminhamento_realizado,
+            cadastro.status,
+            "Concluído" if cadastro.lgpd_concluido else "Pendente",
+            bool(cadastro.foto_url),
+            bool(cadastro.comprovante_residencia_url),
+            bool(cadastro.documento_pessoal_url),
+            not pendencias,
+            ", ".join(pendencias),
+            ", ".join(alertas),
+            cadastro.criado_em,
+            cadastro.observacoes,
+        ])
+    return _response_csv(_nome_arquivo_export("cadastros_asap"), linhas)
+
+
+@router.get("/export/graficos.csv")
+def exportar_graficos_csv(
+    busca: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    pcd: Optional[bool] = Query(None),
+    genero: Optional[str] = Query(None),
+    lgpd_concluido: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(usuario_atual),
+):
+    cadastros = _listar_cadastros_filtrados(db, busca, status, pcd, genero, lgpd_concluido)
+    return _response_csv(_nome_arquivo_export("resumo_graficos_asap"), _linhas_resumo_graficos(cadastros))
 
 
 @router.post("/", response_model=CadastroOut, status_code=201)
@@ -306,27 +631,70 @@ def criar(body: CadastroCreate, request: Request, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="CPF inválido")
     _validar_data_nascimento(body.data_nascimento)
     cpf_formatado = _formatar_cpf(body.cpf)
-    if db.query(Cadastro).filter(Cadastro.cpf.in_([cpf_formatado, _somente_digitos(body.cpf), body.cpf])).first():
+    if _cpf_ja_cadastrado(db, [cpf_formatado, _somente_digitos(body.cpf), body.cpf]):
         raise HTTPException(status_code=400, detail="CPF já cadastrado")
     png = _decode_assinatura_png(body.assinatura_base64)
     dados = body.model_dump(exclude={"aceite_termo_lgpd", "aceite_termo_imagem", "assinatura_base64"})
     dados["cpf"] = cpf_formatado
     c = Cadastro(**dados)
-    db.add(c)
-    db.flush()
-    try:
-        _gerar_pdfs_termos_e_anexar(c, png)
-    except Exception:
-        db.rollback()
-        raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.")
-    db.commit()
-    db.refresh(c)
+    if sheets_enabled():
+        c = criar_cadastro_sheets(c)
+        try:
+            _gerar_pdfs_termos_e_anexar(c, png)
+        except Exception:
+            excluir_cadastro_sheets(c.id)
+            raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.")
+        c = atualizar_cadastro_sheets(c)
+    else:
+        db.add(c)
+        db.flush()
+        try:
+            _gerar_pdfs_termos_e_anexar(c, png)
+        except Exception:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.")
+        db.commit()
+        db.refresh(c)
     registrar_auditoria(
         db,
         action="cadastro.create",
         entity_type="cadastro",
         entity_id=c.id,
         details=f"cpf={c.cpf};status={c.status};termos_gerados=1",
+        actor=atual,
+        ip_address=request.client.host if request.client else None,
+    )
+    return _montar_saida_cadastro(db, c)
+
+
+@router.post("/pendente-assinatura", response_model=CadastroOut, status_code=201)
+def criar_pendente_assinatura(
+    body: CadastroDadosBase,
+    request: Request,
+    db: Session = Depends(get_db),
+    atual: Usuario = Depends(requer_perfil("coordenadora", "assistente")),
+):
+    if not _cpf_valido(body.cpf):
+        raise HTTPException(status_code=400, detail="CPF inválido")
+    _validar_data_nascimento(body.data_nascimento)
+    cpf_formatado = _formatar_cpf(body.cpf)
+    if _cpf_ja_cadastrado(db, [cpf_formatado, _somente_digitos(body.cpf), body.cpf]):
+        raise HTTPException(status_code=400, detail="CPF já cadastrado")
+    dados = body.model_dump()
+    dados["cpf"] = cpf_formatado
+    c = Cadastro(**dados)
+    if sheets_enabled():
+        c = criar_cadastro_sheets(c)
+    else:
+        db.add(c)
+        db.commit()
+        db.refresh(c)
+    registrar_auditoria(
+        db,
+        action="cadastro.create_pending_signature",
+        entity_type="cadastro",
+        entity_id=c.id,
+        details=f"cpf={c.cpf};status={c.status};termos_gerados=0",
         actor=atual,
         ip_address=request.client.host if request.client else None,
     )
@@ -360,7 +728,7 @@ def preview_termo(
 
 @router.get("/{id}", response_model=CadastroOut)
 def buscar(id: int, db: Session = Depends(get_db), _: Usuario = Depends(usuario_atual)):
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
+    c = _buscar_cadastro(db, id)
     if not c:
         raise HTTPException(status_code=404, detail="Não encontrado")
     return _montar_saida_cadastro(db, c)
@@ -369,7 +737,7 @@ def buscar(id: int, db: Session = Depends(get_db), _: Usuario = Depends(usuario_
 @router.patch("/{id}", response_model=CadastroOut)
 def atualizar(id: int, body: CadastroUpdate, request: Request, db: Session = Depends(get_db),
               atual: Usuario = Depends(requer_perfil("coordenadora", "assistente"))):
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
+    c = _buscar_cadastro(db, id)
     if not c:
         raise HTTPException(status_code=404, detail="Não encontrado")
     dados = body.model_dump(exclude_unset=True)
@@ -377,8 +745,7 @@ def atualizar(id: int, body: CadastroUpdate, request: Request, db: Session = Dep
         if not _cpf_valido(dados["cpf"]):
             raise HTTPException(status_code=400, detail="CPF inválido")
         cpf_formatado = _formatar_cpf(dados["cpf"])
-        existente = db.query(Cadastro).filter(Cadastro.cpf.in_([cpf_formatado, _somente_digitos(dados["cpf"]), dados["cpf"]])).first()
-        if existente and existente.id != c.id:
+        if _cpf_ja_cadastrado(db, [cpf_formatado, _somente_digitos(dados["cpf"]), dados["cpf"]], ignorar_id=c.id):
             raise HTTPException(status_code=400, detail="CPF já cadastrado")
         dados["cpf"] = cpf_formatado
     if "data_nascimento" in dados:
@@ -389,8 +756,11 @@ def atualizar(id: int, body: CadastroUpdate, request: Request, db: Session = Dep
             raise HTTPException(status_code=400, detail="Use o endpoint de aprovação para ativar cadastro")
     for campo, valor in dados.items():
         setattr(c, campo, valor)
-    db.commit()
-    db.refresh(c)
+    if sheets_enabled():
+        c = atualizar_cadastro_sheets(c)
+    else:
+        db.commit()
+        db.refresh(c)
     registrar_auditoria(
         db,
         action="cadastro.update",
@@ -403,17 +773,56 @@ def atualizar(id: int, body: CadastroUpdate, request: Request, db: Session = Dep
     return _montar_saida_cadastro(db, c)
 
 
+@router.post("/{id}/assinar", response_model=CadastroOut)
+def assinar_cadastro(
+    id: int,
+    body: CadastroAssinaturaRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    atual: Usuario = Depends(requer_perfil("coordenadora", "assistente")),
+):
+    c = _buscar_cadastro(db, id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Não encontrado")
+    if c.termo_lgpd_url and c.termo_imagem_url:
+        raise HTTPException(status_code=400, detail="Cadastro já possui termos assinados")
+    png = _decode_assinatura_png(body.assinatura_base64)
+    try:
+        _gerar_pdfs_termos_e_anexar(c, png)
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.")
+    if sheets_enabled():
+        c = atualizar_cadastro_sheets(c)
+    else:
+        db.commit()
+        db.refresh(c)
+    registrar_auditoria(
+        db,
+        action="cadastro.sign_terms",
+        entity_type="cadastro",
+        entity_id=c.id,
+        details="termos_gerados=1",
+        actor=atual,
+        ip_address=request.client.host if request.client else None,
+    )
+    return _montar_saida_cadastro(db, c)
+
+
 @router.post("/{id}/aprovar", response_model=CadastroOut)
 def aprovar(id: int, request: Request, db: Session = Depends(get_db),
-            usuario: Usuario = Depends(requer_perfil("coordenadora", "ti"))):
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
+            usuario: Usuario = Depends(requer_perfil("coordenadora"))):
+    c = _buscar_cadastro(db, id)
     if not c:
         raise HTTPException(status_code=404, detail="Não encontrado")
     _validar_requisitos_aprovacao(c)
     c.status = "ativo"
     c.aprovado_por_id = usuario.id
-    db.commit()
-    db.refresh(c)
+    if sheets_enabled():
+        c = atualizar_cadastro_sheets(c)
+    else:
+        db.commit()
+        db.refresh(c)
     registrar_auditoria(
         db,
         action="cadastro.approve",
@@ -429,12 +838,15 @@ def aprovar(id: int, request: Request, db: Session = Depends(get_db),
 @router.delete("/{id}", status_code=204)
 def excluir(id: int, request: Request, db: Session = Depends(get_db),
             atual: Usuario = Depends(requer_perfil("coordenadora"))):
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
+    c = _buscar_cadastro(db, id)
     if not c:
         raise HTTPException(status_code=404, detail="Nao encontrado")
     cadastro_id = c.id
-    db.delete(c)
-    db.commit()
+    if sheets_enabled():
+        excluir_cadastro_sheets(cadastro_id)
+    else:
+        db.delete(c)
+        db.commit()
     registrar_auditoria(
         db,
         action="cadastro.delete",
@@ -449,7 +861,7 @@ def excluir(id: int, request: Request, db: Session = Depends(get_db),
 
 @router.get("/{id}/pdf")
 def baixar_pdf(id: int, db: Session = Depends(get_db), _: Usuario = Depends(usuario_atual)):
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
+    c = _buscar_cadastro(db, id)
     if not c:
         raise HTTPException(status_code=404, detail="Não encontrado")
     pdf = gerar_pdf_cadastro(c)
@@ -471,13 +883,16 @@ async def upload_documento(id: int, tipo: str, arquivo: UploadFile = File(...),
     }
     if tipo not in campos_validos:
         raise HTTPException(status_code=400, detail=f"Tipo inválido. Use: {list(campos_validos)}")
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
+    c = _buscar_cadastro(db, id)
     if not c:
         raise HTTPException(status_code=404, detail="Não encontrado")
     arquivo_seguro, conteúdo = await validar_arquivo_upload(tipo, arquivo)
     caminho = salvar_arquivo_externo(arquivo_seguro.storage_ref, conteúdo, arquivo_seguro.content_type)
     setattr(c, campos_validos[tipo], caminho)
-    db.commit()
+    if sheets_enabled():
+        c = atualizar_cadastro_sheets(c)
+    else:
+        db.commit()
     return {"url": gerar_url_assinada_download(c.id, tipo, caminho)}
 
 
@@ -492,7 +907,7 @@ def baixar_documento(id: int, tipo: str, token: str, db: Session = Depends(get_d
     }
     if tipo not in campos_validos:
         raise HTTPException(status_code=400, detail="Tipo inválido")
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
+    c = _buscar_cadastro(db, id)
     if not c:
         raise HTTPException(status_code=404, detail="Não encontrado")
 
@@ -516,9 +931,39 @@ def excluir_por_politica_lgpd(
     db: Session = Depends(get_db),
     atual: Usuario = Depends(requer_perfil("coordenadora")),
 ):
-    c = db.query(Cadastro).filter(Cadastro.id == id).first()
+    c = _buscar_cadastro(db, id)
     if not c:
         raise HTTPException(status_code=404, detail="Não encontrado")
+
+    if sheets_enabled():
+        agora = datetime.now(timezone.utc)
+        c.nome = "DADO EXCLUIDO"
+        c.nome_social = None
+        c.rg = None
+        c.orgao_expedidor = None
+        c.email = None
+        c.telefone = "DADO EXCLUIDO"
+        c.endereco = None
+        c.cidade = None
+        c.uf = None
+        c.foto_url = None
+        c.comprovante_residencia_url = None
+        c.documento_pessoal_url = None
+        c.termo_imagem_url = None
+        c.termo_lgpd_url = None
+        c.status = "inativo"
+        c.observacoes = (c.observacoes or "") + f"\n[LGPD] Exclusão lógica aplicada em {agora.isoformat()}; motivo={body.motivo}"
+        c = atualizar_cadastro_sheets(c)
+        registrar_auditoria(
+            db,
+            action="cadastro.lgpd.delete",
+            entity_type="cadastro",
+            entity_id=c.id,
+            details=f"motivo={body.motivo}",
+            actor=atual,
+            ip_address=request.client.host if request.client else None,
+        )
+        return _montar_saida_cadastro(db, c)
 
     lgpd = _obter_ou_criar_lgpd(db, c.id)
     agora = datetime.now(timezone.utc)

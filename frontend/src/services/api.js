@@ -2,6 +2,61 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api' })
 
+const cadastrosListCache = new Map()
+const CADASTROS_CACHE_MS = 5 * 60 * 1000
+const CADASTROS_SESSION_PREFIX = 'cadastros:list:'
+
+const cacheKey = (params = {}) => {
+  const clean = Object.entries(params)
+    .filter(([key, value]) => key !== '_ts' && value !== undefined && value !== null && value !== '')
+    .sort(([a], [b]) => a.localeCompare(b))
+  return JSON.stringify(clean)
+}
+
+const getCachedList = (params = {}) => {
+  const key = cacheKey(params)
+  const item = cadastrosListCache.get(key)
+  if (!item) return getSessionCachedList(params)
+  if (Date.now() - item.at > CADASTROS_CACHE_MS) return null
+  return item.data
+}
+
+const setCachedList = (params = {}, data = []) => {
+  const key = cacheKey(params)
+  const item = { at: Date.now(), data }
+  cadastrosListCache.set(key, item)
+  try {
+    sessionStorage.setItem(`${CADASTROS_SESSION_PREFIX}${key}`, JSON.stringify(item))
+  } catch {
+    // Cache é só otimização visual; falha de storage não deve afetar a tela.
+  }
+}
+
+const getSessionCachedList = (params = {}) => {
+  const key = cacheKey(params)
+  try {
+    const raw = sessionStorage.getItem(`${CADASTROS_SESSION_PREFIX}${key}`)
+    if (!raw) return null
+    const item = JSON.parse(raw)
+    if (!item || Date.now() - item.at > CADASTROS_CACHE_MS) return null
+    cadastrosListCache.set(key, item)
+    return item.data
+  } catch {
+    return null
+  }
+}
+
+const clearCadastrosCache = () => {
+  cadastrosListCache.clear()
+  try {
+    Object.keys(sessionStorage)
+      .filter((key) => key.startsWith(CADASTROS_SESSION_PREFIX))
+      .forEach((key) => sessionStorage.removeItem(key))
+  } catch {
+    // Ignora falhas de storage.
+  }
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
@@ -36,16 +91,39 @@ export const auth = {
 
 export const cadastros = {
   listar: (params) => api.get('/cadastros/', { params }),
+  listarCached: async (params = {}) => {
+    const cached = getCachedList(params)
+    if (cached) {
+      api.get('/cadastros/', { params: { ...params, _ts: Date.now() } })
+        .then((r) => setCachedList(params, r.data))
+        .catch(() => {})
+      return { data: cached, cached: true }
+    }
+    const r = await api.get('/cadastros/', { params: { ...params, _ts: Date.now() } })
+    setCachedList(params, r.data)
+    return r
+  },
+  getCachedList,
   buscar: (id) => api.get(`/cadastros/${id}`),
-  criar: (data) => api.post('/cadastros/', data),
-  atualizar: (id, data) => api.patch(`/cadastros/${id}`, data),
+  exportarCsv: async (params) => {
+    const r = await api.get('/cadastros/export/cadastros.csv', { params, responseType: 'blob' })
+    return r.data
+  },
+  exportarGraficosCsv: async (params) => {
+    const r = await api.get('/cadastros/export/graficos.csv', { params, responseType: 'blob' })
+    return r.data
+  },
+  criar: (data) => api.post('/cadastros/', data).then((r) => { clearCadastrosCache(); return r }),
+  criarPendenteAssinatura: (data) => api.post('/cadastros/pendente-assinatura', data).then((r) => { clearCadastrosCache(); return r }),
+  atualizar: (id, data) => api.patch(`/cadastros/${id}`, data).then((r) => { clearCadastrosCache(); return r }),
+  assinar: (id, data) => api.post(`/cadastros/${id}/assinar`, data).then((r) => { clearCadastrosCache(); return r }),
   previewTermo: async (data) => {
     const r = await api.post('/cadastros/preview-termo', data, { responseType: 'blob' })
     return r.data
   },
-  excluirLgpd: (id, motivo) => api.post(`/cadastros/${id}/lgpd/excluir`, { motivo }),
-  excluir: (id) => api.delete(`/cadastros/${id}`),
-  aprovar: (id) => api.post(`/cadastros/${id}/aprovar`),
+  excluirLgpd: (id, motivo) => api.post(`/cadastros/${id}/lgpd/excluir`, { motivo }).then((r) => { clearCadastrosCache(); return r }),
+  excluir: (id) => api.delete(`/cadastros/${id}`).then((r) => { clearCadastrosCache(); return r }),
+  aprovar: (id) => api.post(`/cadastros/${id}/aprovar`).then((r) => { clearCadastrosCache(); return r }),
   baixarPdf: async (id) => {
     const r = await api.get(`/cadastros/${id}/pdf`, { responseType: 'blob' })
     return r.data
@@ -53,7 +131,7 @@ export const cadastros = {
   uploadDoc: (id, tipo, arquivo) => {
     const form = new FormData()
     form.append('arquivo', arquivo)
-    return api.post(`/cadastros/${id}/documentos/${tipo}`, form)
+    return api.post(`/cadastros/${id}/documentos/${tipo}`, form).then((r) => { clearCadastrosCache(); return r })
   },
 }
 

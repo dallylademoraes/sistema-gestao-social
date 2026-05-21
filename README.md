@@ -7,6 +7,31 @@
 
 ---
 
+## Cadastros em Google Planilha via Apps Script
+
+O sistema pode manter login/usuários no banco atual e gravar **todos os cadastros** em uma planilha do Google.
+
+1. Crie uma Planilha Google.
+2. Na planilha, acesse **Extensões → Apps Script**.
+3. Cole o conteúdo de `backend/docs/google-apps-script-cadastros.js`.
+4. Troque o valor de `TOKEN` por um segredo grande.
+5. Clique em **Implantar → Nova implantação → App da Web**.
+6. Configure:
+   - **Executar como:** você
+   - **Quem pode acessar:** qualquer pessoa
+7. Copie a URL terminada em `/exec`.
+8. No `backend/.env`, adicione:
+
+```env
+CADASTROS_STORAGE=sheets
+GOOGLE_APPS_SCRIPT_URL=https://script.google.com/macros/s/SEU_DEPLOY_ID/exec
+GOOGLE_APPS_SCRIPT_TOKEN=mesmo-token-configurado-no-apps-script
+```
+
+A aba `cadastros` e os cabeçalhos são criados automaticamente no primeiro cadastro/listagem.
+
+---
+
 ## Rodando localmente
 
 ### Comando unico (Windows)
@@ -79,11 +104,21 @@ Acesse: `http://localhost:5173` e use o login descrito em [Primeiro acesso (logi
 
 ### Novo cadastro, termos e assinatura
 
-- No **novo cadastro**, o assistente ou coordenadora deve aceitar os dois termos (LGPD e uso de imagem), **assinar no quadro** (tablet ou mouse) e só então salvar. O backend gera automaticamente dois PDFs com os dados e a assinatura.
+- No **novo cadastro**, o assistente ou coordenadora pode assinar no próprio formulário ou usar **Salvar para assinar no tablet**. Nesse segundo fluxo, o cadastro fica salvo com os termos pendentes.
+- No tablet, acesse **Assinaturas pendentes**, abra o cadastro da pessoa atendida, marque os dois termos e colete a assinatura. O backend gera automaticamente dois PDFs com os dados e a assinatura, e o cadastro no PC passa a mostrar os termos como concluídos.
+- Para aprovação, foto, comprovante de residência e documento pessoal aparecem como **alertas**, mas não bloqueiam a decisão do usuário coordenador. Termos assinados, CPF válido e dados essenciais continuam obrigatórios.
 - Os textos jurídicos dos PDFs vêm de `backend/assets/termos/texto_lgpd.txt` e `texto_imagem.txt` — substitua pelo texto oficial da ASAP (ver `backend/assets/termos/README.md`).
 - **Prévia:** no formulário, use «Baixar prévia» para conferir o PDF sem gravar o cadastro.
 - Cadastros antigos sem os dois PDFs podem mostrar «Termos: pendente» até serem recriados ou tratados manualmente.
 - Se você já usava SQLite local (`dev.db`) de uma versão anterior e ocorrer erro de coluna ao subir o backend, apague `backend/dev.db` e suba de novo (perde dados locais) ou faça migração manual; o projeto não inclui Alembic neste repositório.
+
+### Exportações para Excel e relatórios
+
+- No **Painel**, use **Exportar cadastros CSV** para baixar a base completa e **Exportar gráficos CSV** para baixar um resumo com indicadores e séries dos gráficos.
+- Em cada gráfico do Painel, o botão **CSV** exporta só aquela série para uso direto no Excel.
+- O Painel prioriza gráficos úteis para relatório social: status, novos cadastros por mês, faixa etária, PCD, encaminhamentos, renda média, cor/raça, identidade de gênero e principais cidades.
+- Na tela **Cadastros**, o botão **Exportar Excel** baixa os cadastros respeitando os filtros aplicados na lista.
+- Os arquivos são CSV com separador `;`, BOM UTF-8 e linha `sep=;`, para abrir corretamente no Excel em português.
 
 ---
 
@@ -119,7 +154,7 @@ Acesse: `http://localhost:5173` e use o login descrito em [Primeiro acesso (logi
 |---|---|
 | `coordenadora` | Gerencia tudo: cria usuários, cria/edita/exclui cadastros, upload de documentos, visualiza e aprova cadastros |
 | `assistente` | Cria e edita cadastros, faz upload de documentos e visualiza cadastros (sem aprovar e sem excluir) |
-| `ti` | Visualiza todos os cadastros e aprova cadastros (sem criar, sem editar, sem upload e sem excluir) |
+| `ti` | Visualiza todos os cadastros (sem criar, sem editar, sem upload, sem aprovar e sem excluir) |
 
 ---
 
@@ -131,6 +166,8 @@ Acesse: `http://localhost:5173` e use o login descrito em [Primeiro acesso (logi
 | GET | `/api/auth/me` | Usuário logado |
 | POST | `/api/auth/usuarios` | Criar usuário (somente coordenadora) |
 | GET | `/api/cadastros` | Listar (com filtros) |
+| GET | `/api/cadastros/export/cadastros.csv` | Exportar cadastros em CSV compatível com Excel |
+| GET | `/api/cadastros/export/graficos.csv` | Exportar resumo dos gráficos em CSV compatível com Excel |
 | POST | `/api/cadastros` | Criar cadastro |
 | GET | `/api/cadastros/{id}` | Detalhe |
 | PATCH | `/api/cadastros/{id}` | Editar |

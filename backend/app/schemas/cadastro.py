@@ -37,6 +37,18 @@ class CadastroCreate(CadastroDadosBase):
         return self
 
 
+class CadastroAssinaturaRequest(BaseModel):
+    aceite_termo_lgpd: bool = False
+    aceite_termo_imagem: bool = False
+    assinatura_base64: str = Field(..., min_length=24, description="PNG em base64 ou data URL")
+
+    @model_validator(mode="after")
+    def exigir_aceites(self):
+        if not self.aceite_termo_lgpd or not self.aceite_termo_imagem:
+            raise ValueError("É obrigatório aceitar o Termo LGPD e o Termo de uso de imagem")
+        return self
+
+
 class CadastroUpdate(BaseModel):
     nome: Optional[str] = None
     nome_social: Optional[str] = None
@@ -87,6 +99,7 @@ class CadastroOut(CadastroDadosBase):
     lgpd_concluido: bool = False
     pronto_aprovacao: bool = False
     pendencias_aprovacao: list[str] = Field(default_factory=list)
+    alertas_aprovacao: list[str] = Field(default_factory=list)
     criado_em: datetime
     foto_url: Optional[str] = None
     comprovante_residencia_url: Optional[str] = None

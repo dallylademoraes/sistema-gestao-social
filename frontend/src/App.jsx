@@ -8,6 +8,8 @@ import ListaCadastros from './pages/ListaCadastros'
 import DetalheCadastro from './pages/DetalheCadastro'
 import NovoCadastro from './pages/NovoCadastro'
 import EditarCadastro from './pages/EditarCadastro'
+import AssinaturasPendentes from './pages/AssinaturasPendentes'
+import AssinarCadastro from './pages/AssinarCadastro'
 import Usuarios from './pages/Usuarios'
 import EsqueciSenha from './pages/EsqueciSenha'
 import RedefinirSenha from './pages/RedefinirSenha'
@@ -25,6 +27,8 @@ export default function App() {
               <Route path="/" element={<Painel />} />
               <Route path="/cadastros" element={<ListaCadastros />} />
               <Route path="/cadastros/novo" element={<NovoCadastro />} />
+              <Route path="/assinaturas-pendentes" element={<AssinaturasPendentes />} />
+              <Route path="/cadastros/:id/assinar" element={<AssinarCadastro />} />
               <Route path="/cadastros/:id/editar" element={<EditarCadastro />} />
               <Route path="/cadastros/:id" element={<DetalheCadastro />} />
               <Route path="/usuarios" element={<Usuarios />} />
