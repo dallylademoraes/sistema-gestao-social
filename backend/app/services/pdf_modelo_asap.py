@@ -200,39 +200,51 @@ def _indice_pagina_assinatura_lgpd(doc: fitz.Document) -> int:
 
     return doc.page_count - 1
 
-
 def _preencher_uso_imagem_p0(
     page: fitz.Page,
     cadastro: Cadastro,
     agora: str,
     imagem_png: bytes | None,
 ) -> None:
-    """
-    Preenche a página do Termo de Uso de Imagem.
 
-    O modelo original divide o primeiro parágrafo em dois blocos físicos
-    separados por um espaço em branco: o trecho variável ("Eu, [nome]…")
-    ocupa y≈119–167 e o trecho fixo ("meio de fotos…") começa em y≈197.
-    Para que o resultado seja um único parágrafo contínuo, apagamos ambas
-    as regiões e reinserimos o texto completo como um só bloco, deixando
-    o PyMuPDF calcular as quebras de linha naturalmente.
-    """
-    dia, mes_nome, ano4, ano2, _mm = _parse_agora_br(agora)
+    dia, mes_nome, ano4, ano2, mm = _parse_agora_br(agora)
+
     rua, numero = _rua_e_numero(cadastro.endereco)
 
-    rg_txt = " ".join(filter(None, [cadastro.rg or "", cadastro.orgao_expedidor or ""])).strip() or "—"
-    nome    = (cadastro.nome or "").strip() or "—"
-    cpf     = (cadastro.cpf or "").strip() or "—"
-    cidade  = (cadastro.cidade or "").strip() or "—"
-    local   = ", ".join(filter(None, [cadastro.cidade or "", cadastro.uf or ""])) or cidade
+    rg_txt = " ".join(
+        filter(None, [cadastro.rg or "", cadastro.orgao_expedidor or ""])
+    ).strip() or "—"
+
+    nome = (cadastro.nome or "").strip() or "—"
+    cpf = (cadastro.cpf or "").strip() or "—"
+    cidade = (cadastro.cidade or "").strip() or "—"
+
+    local = ", ".join(
+        filter(None, [cadastro.cidade or "", cadastro.uf or ""])
+    ) or cidade
+
     ano_txt = ano4 if len(ano4) == 4 else f"20{ano2}"
 
-    # ------------------------------------------------------------------
-    # Parágrafo 1 completo: trecho variável + continuação fixa do modelo.
-    # Apaga a região que abrange os dois blocos originais (y=115 a y=270)
-    # e reescreve como texto corrido único.
-    # ------------------------------------------------------------------
-    texto_paragrafo1 = (
+    # Limpa a página inteira
+    _redact_rect(
+        page,
+        fitz.Rect(
+            40,
+            40,
+            560,
+            820,
+        )
+    )
+
+    # Título
+    page.insert_text(
+        fitz.Point(110, 80),
+        "TERMO DE AUTORIZAÇÃO DE USO DE IMAGEM",
+        fontsize=14,
+        fontname="helv",
+    )
+
+    texto = (
         f"Eu, {nome}, portador(a) da Cédula de Identidade nº {rg_txt}, "
         f"inscrito(a) no CPF sob nº {cpf}, residente à Rua {rua}, "
         f"nº {numero}, na cidade de {cidade}, AUTORIZO o uso e divulgação "
@@ -240,28 +252,65 @@ def _preencher_uso_imagem_p0(
         f"audiovisuais realizados pela Ação Social Arquidiocesana de Palmas "
         f"(ASAP), para fins institucionais, sem finalidade comercial, "
         f"relacionados às atividades, projetos, ações e prestação de contas "
-        f"da instituição."
+        f"da instituição.\n\n"
+
+        f"A presente autorização é concedida a título gratuito, abrangendo "
+        f"o uso da imagem acima mencionada em todo território nacional e no "
+        f"exterior, em todas as suas modalidades e, em destaque, das "
+        f"seguintes formas: (I) páginas institucionais na internet "
+        f"(sites e redes sociais da ASAP); (II) relatórios institucionais "
+        f"e de prestação de contas; (III) materiais informativos e de "
+        f"divulgação; (IV) cartazes, apresentações e campanhas; e "
+        f"(V) toda e qualquer forma de divulgação institucional.\n\n"
+
+        f"Por esta ser a expressão da minha vontade, declaro que autorizo "
+        f"o uso acima descrito sem que nada haja a ser reclamado a título "
+        f"de direitos conexos à minha imagem ou a qualquer outro, não "
+        f"recebendo para tanto qualquer tipo de remuneração, e assino "
+        f"a presente autorização."
     )
-    _inserir_bloco_texto(
-        page,
-        fitz.Rect(_MARGEM_ESQ, 115.0, _MARGEM_DIR, 268.0),
-        texto_paragrafo1,
+
+    # Texto principal
+    page.insert_textbox(
+        fitz.Rect(
+            60,
+            120,
+            540,
+            450,
+        ),
+        texto,
+        fontname="helv",
+        fontsize=11,
+        color=(0, 0, 0),
         align=fitz.TEXT_ALIGN_JUSTIFY,
     )
 
-    # ------------------------------------------------------------------
-    # Data: inserida logo abaixo da área da assinatura.
-    # No modelo em branco a linha de data fica em y≈455–467; usamos a
-    # mesma faixa, que está acima da linha «Assinatura» (y≈534).
-    # ------------------------------------------------------------------
-    _inserir_linha_simples(page, 453.0, 469.0, f"{local}, {dia} de {mes_nome} de {ano_txt}.")
-
-    # Apaga a linha de sublinhados da assinatura (mantém o rótulo «Assinatura»)
-    _redact_rect(page, fitz.Rect(167.5, 517.2, 422.0, 530.6))
-
+    # Assinatura mais próxima do texto
     if imagem_png:
-        _inserir_assinatura(page, fitz.Rect(120.0, 478.0, 470.0, 532.0), imagem_png)
+        _inserir_assinatura(
+            page,
+            fitz.Rect(
+                140,
+                440,
+                430,
+                515,
+            ),
+            imagem_png,
+        )
 
+    page.insert_text(
+        fitz.Point(245, 535),
+        "Assinatura",
+        fontsize=14,
+        fontname="helv",
+    )
+
+    page.insert_text(
+        fitz.Point(225, 560),
+        f"{dia} de {mes_nome} de {ano_txt}",
+        fontsize=12,
+        fontname="helv",
+    )
 
 def _preencher_lgpd_assinatura(
     page: fitz.Page,
@@ -269,20 +318,68 @@ def _preencher_lgpd_assinatura(
     agora: str,
     imagem_png: bytes | None,
 ) -> None:
-    """Última página com «Nome do titular» / CPF / assinatura / data (modelo ASAP)."""
-    dia, _mes_nome, ano4, _ano2, mm = _parse_agora_br(agora)
+
+    dia, mes_nome, ano4, _ano2, _mm = _parse_agora_br(agora)
+
     nome = (cadastro.nome or "").strip() or "—"
-    cpf  = (cadastro.cpf or "").strip() or "—"
+    cpf = (cadastro.cpf or "").strip() or "—"
 
-    _inserir_linha_simples(page, 627.8, 641.2, nome, x0=76.9,  x1=333.8)
-    _inserir_linha_simples(page, 627.8, 641.2, cpf,  x0=364.9, x1=518.3)
+    # Limpa a área final da página
+    _redact_rect(
+        page,
+        fitz.Rect(
+            50,
+            640,
+            550,
+            820,
+        )
+    )
 
+    # Texto de consentimento
+    texto_consentimento = (
+        f"Declaro que fui informado(a) de forma clara sobre o tratamento "
+        f"dos meus dados pessoais e concordo livremente com sua coleta e "
+        f"utilização para os fins descritos neste documento. Eu, {nome}, "
+        f"inscrito(a) no CPF sob o nº {cpf}, confirmo minha concordância "
+        f"com os termos aqui apresentados e firmo o presente consentimento "
+        f"na data de {dia} de {mes_nome} de {ano4}."
+    )
+
+    page.insert_textbox(
+        fitz.Rect(
+            60,
+            610,
+            540,
+            710,
+        ),
+        texto_consentimento,
+        fontname="helv",
+        fontsize=11,
+        color=(0, 0, 0),
+        align=fitz.TEXT_ALIGN_JUSTIFY,
+    )
+
+    # Assinatura centralizada
     if imagem_png:
-        _inserir_assinatura(page, fitz.Rect(110.0, 675.0, 485.0, 735.0), imagem_png)
+        _inserir_assinatura(
+            page,
+            fitz.Rect(
+                150,
+                720,
+                420,
+                770,
+            ),
+            imagem_png,
+        )
 
-    _inserir_linha_simples(page, 738.9, 752.3, f"{dia}/{mm}/{ano4}", x0=257.6, x1=371.0)
-
-
+    # Texto abaixo da assinatura
+    page.insert_text(
+        fitz.Point(245, 790),
+        "Assinatura",
+        fontsize=14,
+        fontname="helv",
+    )   
+    
 def try_preencher_modelo_asap_pdf(
     modelo_path: Path,
     tipo: str,
