@@ -16,17 +16,20 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (err) => {
-    const url = err.config?.url || ''
-    const isAuthMe = url.includes('/auth/me')
-    const isLoginPage = typeof window !== 'undefined' && window.location.pathname === '/login'
+    const status = err.response?.status;
+    const url = err.config?.url || '';
     
-    if (err.response?.status === 401 && !url.includes('/auth/token') && !isAuthMe && !isLoginPage) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+    // Se for 401 e NÃO for uma tentativa de login ou de verificar o "me", então desloga
+    if (status === 401 && !url.includes('/auth/token') && !url.includes('/auth/me')) {
+      localStorage.removeItem('token');
+      // Só redireciona se já não estivermos no login
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
-    return Promise.reject(err)
+    return Promise.reject(err);
   }
-)
+);
 
 // Cache de cadastros
 const cadastrosListCache = new Map()
