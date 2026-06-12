@@ -1,135 +1,177 @@
-# 📋 Sistema de Cadastro ASAP — Planejamento do Projeto
+# ASAP — Sistema de Gestão
 
-> **Disciplina de Extensão** | Projeto voluntário para a ASAP  
-> **Período:** 21/04/2025 – 20/06/2026 (8 semanas / 2 meses)  
-> **Equipe:** Dallyla · Neci · Heloísa
-
----
-
-## 🧭 Visão Geral
-
-**Objetivo do sistema:** Criar um banco de dados de usuários/as e doadores do projeto ASAP para apoio na prestação de contas descritiva, com coleta de dados pessoais, socioeconômicos e documentos, respeitando a LGPD.
-
-**Premissa de custo zero:** toda a infraestrutura usa Google Workspace (Forms + Sheets + Drive), sem servidor próprio, sem banco de dados pago.
+## Stack
+- **Backend:** Python 3.11 + FastAPI + PostgreSQL + SQLAlchemy
+- **Frontend:** React 18 + Vite
+- **Deploy:** Railway (backend + banco) · Vercel (frontend)
 
 ---
 
-## 🛠️ Stack Escolhida e Justificativa
+## Cadastros em Google Planilha via Apps Script
 
-| Camada | Tecnologia | Motivo |
+O sistema pode manter login/usuários no banco atual e gravar **todos os cadastros** em uma planilha do Google.
+
+1. Crie uma Planilha Google.
+2. Na planilha, acesse **Extensões → Apps Script**.
+3. Cole o conteúdo de `backend/docs/google-apps-script-cadastros.js`.
+4. Troque o valor de `TOKEN` por um segredo grande.
+5. Clique em **Implantar → Nova implantação → App da Web**.
+6. Configure:
+   - **Executar como:** você
+   - **Quem pode acessar:** qualquer pessoa
+7. Copie a URL terminada em `/exec`.
+8. No `backend/.env`, adicione:
+
+```env
+CADASTROS_STORAGE=sheets
+GOOGLE_APPS_SCRIPT_URL=https://script.google.com/macros/s/SEU_DEPLOY_ID/exec
+GOOGLE_APPS_SCRIPT_TOKEN=mesmo-token-configurado-no-apps-script
+```
+
+A aba `cadastros` e os cabeçalhos são criados automaticamente no primeiro cadastro/listagem.
+
+---
+
+## Rodando localmente
+
+### Comando unico (Windows)
+
+Na raiz do projeto, rode:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run-dev.ps1
+```
+
+Isso abre dois terminais: backend em `http://127.0.0.1:8000/docs` e frontend em `http://localhost:5173`. Se ainda não existir `backend/.env`, o script copia `backend/.env.example` para `backend/.env`.
+
+O `run-dev.ps1` **não** executa o seed. Na **primeira vez**, depois que o backend estiver no ar, abra um terminal na pasta `backend` (com o `venv` ativado) e rode `python seed.py` — veja [Primeiro acesso (login na interface)](#primeiro-acesso-login-na-interface).
+
+### Primeiro acesso (login na interface)
+
+Siga esta ordem na primeira máquina ou banco novo:
+
+1. **Configure o ambiente** — Garanta `backend/.env` com `DATABASE_URL` e `SECRET_KEY` (o `run-dev.ps1` pode criar o `.env` a partir de `.env.example`). Com SQLite no exemplo local, não é obrigatório ter PostgreSQL instalado.
+2. **Suba o backend pelo menos uma vez** — Ao iniciar o Uvicorn, a aplicação importa `app.main` e o SQLAlchemy **cria as tabelas** no banco (`create_all`). Sem esse passo, o seed pode falhar por tabela inexistente.
+3. **Rode o seed (obrigatório para existir usuário de login)** — No diretório `backend`, com o ambiente virtual ativo:
+   ```bash
+   python seed.py
+   ```
+   - Se aparecer `Usuário criado: admin@asap.org / troque-essa-senha`, o primeiro usuário coordenadora foi criado.
+   - Se aparecer `Usuário já existe.`, a conta já estava cadastrada; use as credenciais abaixo ou redefina a senha pela aplicação.
+4. **Acesse o frontend** em `http://localhost:5173` e faça login na tela de entrada.
+
+**Credenciais padrão após o seed (ambiente de desenvolvimento):**
+
+| Campo   | Valor                 |
+|---------|-----------------------|
+| E-mail  | `admin@asap.org`      |
+| Senha   | `troque-essa-senha`   |
+
+Em produção, troque essa senha assim que possível (ou crie outro usuário e desative o admin padrão).
+
+### Backend
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate       # Windows: .\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+cp .env.example .env           # se ainda não tiver .env; ajuste DATABASE_URL se usar PostgreSQL
+# edite .env: SECRET_KEY obrigatória; DATABASE_URL conforme o banco
+
+uvicorn app.main:app --reload  # primeiro start cria as tabelas no banco
+```
+
+Em outro terminal (com o mesmo `venv`):
+
+```bash
+cd backend
+python seed.py                 # cria o usuário inicial; rode uma vez por banco novo
+```
+
+Documentação interativa: `http://127.0.0.1:8000/docs` (ou `http://localhost:8000/docs`).
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Acesse: `http://localhost:5173` e use o login descrito em [Primeiro acesso (login na interface)](#primeiro-acesso-login-na-interface).
+
+### Novo cadastro, termos e assinatura
+
+- No **novo cadastro**, o assistente ou coordenadora pode assinar no próprio formulário ou usar **Salvar para assinar no tablet**. Nesse segundo fluxo, o cadastro fica salvo com os termos pendentes.
+- No tablet, acesse **Assinaturas pendentes**, abra o cadastro da pessoa atendida, marque os dois termos e colete a assinatura. O backend gera automaticamente dois PDFs com os dados e a assinatura, e o cadastro no PC passa a mostrar os termos como concluídos.
+- Para aprovação, foto, comprovante de residência e documento pessoal aparecem como **alertas**, mas não bloqueiam a decisão do usuário coordenador. Termos assinados, CPF válido e dados essenciais continuam obrigatórios.
+- Os textos jurídicos dos PDFs vêm de `backend/assets/termos/texto_lgpd.txt` e `texto_imagem.txt` — substitua pelo texto oficial da ASAP (ver `backend/assets/termos/README.md`).
+- **Prévia:** no formulário, use «Baixar prévia» para conferir o PDF sem gravar o cadastro.
+- Cadastros antigos sem os dois PDFs podem mostrar «Termos: pendente» até serem recriados ou tratados manualmente.
+- Se você já usava SQLite local (`dev.db`) de uma versão anterior e ocorrer erro de coluna ao subir o backend, apague `backend/dev.db` e suba de novo (perde dados locais) ou faça migração manual; o projeto não inclui Alembic neste repositório.
+
+### Exportações para Excel e relatórios
+
+- No **Painel**, use **Exportar cadastros CSV** para baixar a base completa e **Exportar gráficos CSV** para baixar um resumo com indicadores e séries dos gráficos.
+- Em cada gráfico do Painel, o botão **CSV** exporta só aquela série para uso direto no Excel.
+- O Painel prioriza gráficos úteis para relatório social: status, novos cadastros por mês, faixa etária, PCD, encaminhamentos, renda média, cor/raça, identidade de gênero e principais cidades.
+- Na tela **Cadastros**, o botão **Exportar Excel** baixa os cadastros respeitando os filtros aplicados na lista.
+- Os arquivos são CSV com separador `;`, BOM UTF-8 e linha `sep=;`, para abrir corretamente no Excel em português.
+
+---
+
+## Deploy no Railway (backend + banco)
+
+1. Crie conta em [railway.app](https://railway.app)
+2. **New Project → Deploy from GitHub repo** (aponte para a pasta `backend`)
+3. Adicione um serviço **PostgreSQL** no mesmo projeto
+4. Na aba **Variables** do serviço backend, adicione:
+   - `DATABASE_URL` → copie o valor gerado pelo PostgreSQL
+   - `SECRET_KEY` → gere com `python -c "import secrets; print(secrets.token_hex(32))"`
+5. Railway detecta o `Procfile` automaticamente e sobe o serviço
+6. Após o primeiro deploy, rode o seed via **Railway CLI** ou pelo terminal do serviço:
+   ```
+   python seed.py
+   ```
+7. O seed cria o mesmo usuário inicial que no ambiente local. Para testar o login: **e-mail** `admin@asap.org`, **senha** `troque-essa-senha` (detalhes e avisos em [Primeiro acesso (login na interface)](#primeiro-acesso-login-na-interface)). Altere a senha em produção.
+
+## Deploy do frontend no Vercel
+
+1. Crie conta em [vercel.com](https://vercel.com)
+2. **New Project → Import** o repositório
+3. Defina **Root Directory** como `frontend`
+4. Adicione a variável de ambiente:
+   - `VITE_API_URL` = URL do backend no Railway (ex: `https://asap-api.up.railway.app`)
+5. Atualize `frontend/src/services/api.js`: troque `baseURL: '/api'` por `baseURL: import.meta.env.VITE_API_URL + '/api'`
+
+---
+
+## Perfis de acesso
+
+| Perfil | Permissões |
+|---|---|
+| `coordenadora` | Gerencia tudo: cria usuários, cria/edita/exclui cadastros, upload de documentos, visualiza e aprova cadastros |
+| `assistente` | Cria e edita cadastros, faz upload de documentos e visualiza cadastros (sem aprovar e sem excluir) |
+| `ti` | Visualiza todos os cadastros (sem criar, sem editar, sem upload, sem aprovar e sem excluir) |
+
+---
+
+## Endpoints principais
+
+| Método | Rota | Descrição |
 |---|---|---|
-| **Formulário de cadastro** | Google Forms | Gratuito, sem código, acessível de qualquer dispositivo, já familiar para o público-alvo |
-| **Banco de dados** | Google Sheets | Integração nativa com Forms, exportação direta para Excel/PDF, controle de acesso por e-mail |
-| **Armazenamento de documentos** | Google Drive | Upload de fotos, PDFs e termos; organização em pastas por beneficiário |
-| **Geração de PDF** | Google Apps Script | Automação gratuita dentro do ecossistema Google; gera PDF do cadastro e envia por e-mail |
-| **Controle de acesso** | Google Workspace (compartilhamento) | Permissões granulares: coordenadora, assistente social e TI — sem custo extra |
-| **Notificações** | Apps Script + Gmail API | E-mail automático de confirmação após cadastro e alerta para aprovação |
-| **Interface de gestão (MVP web)** | HTML + CSS + JS puro | Página estática hospedada no GitHub Pages (grátis) que consome a Sheets via API pública para visualização |
-
-**Por que não usar banco de dados tradicional?**  
-Um sistema com Node/Express + PostgreSQL exigiria hospedagem paga, manutenção de servidor e conhecimento técnico contínuo da equipe da ASAP. O ecossistema Google resolve o problema com custo zero, sem deixar dados dependentes de uma pessoa só, e com ferramentas que a coordenação já sabe usar.
-
----
-
-## 👥 Papéis da Equipe
-
-| Pessoa | Papel principal |
-|---|---|
-| **Dallyla** | Tech Lead & Arquitetura — decisões técnicas, Apps Script, integração Sheets/Drive, deploy |
-| **Neci** | UX & Formulários — design do formulário, validações, fluxo do usuário, documentação de uso |
-| **Heloísa** | Dados & Conformidade — estrutura dos campos, LGPD, testes de cadastro, treinamento da equipe ASAP |
-
----
-
-## 🗓️ Sprints
-
-### Sprint 0 — Kickoff (21/04 – 27/04)
-**Objetivo:** alinhar escopo, montar infraestrutura base e distribuir tarefas.
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Criar a pasta principal no Google Drive; criar a planilha-mãe no Sheets com as abas: `Cadastros`, `Pendentes`, `Log`; configurar permissões de acesso para coordenadora, assistente social e TI |
-| **Neci** | Mapear todos os campos obrigatórios do levantamento de requisitos; rascunhar wireframe do formulário no Google Forms (sem publicar ainda) |
-| **Heloísa** | Levantar quais dados são sensíveis segundo a LGPD (raça/cor, renda, PCD, gênero); redigir primeira versão do Termo de Uso de Imagem e Termo LGPD em Google Docs |
-
-**Entrega ao final:** estrutura de pastas criada, campos mapeados, termos em rascunho.
-
----
-
-### Sprint 1 — Formulário e Campos (28/04 – 04/05)
-**Objetivo:** construir o formulário completo e validar com a equipe ASAP.
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Publicar o Google Forms conectado à planilha; configurar seções do formulário (dados pessoais, socioeconômicos, encaminhamento); testar envio e recebimento na Sheets |
-| **Neci** | Definir ordem lógica dos campos no formulário; escrever as instruções/textos de ajuda de cada campo; criar seção de upload de documentos (foto, comprovante de endereço, RG, termos) via Drive |
-| **Heloísa** | Revisar campos sensíveis (raça/cor, PCD, identidade de gênero, renda) e garantir linguagem adequada; conferir se todos os campos do levantamento de requisitos estão presentes; validar o termo LGPD com a coordenação |
-
-**Entrega ao final:** formulário publicado e funcional, validado pela equipe ASAP.
-
----
-
-### Sprint 2 — Automações e Fluxo de Aprovação (05/05 – 18/05)
-**Objetivo:** automatizar o fluxo pós-cadastro (e-mail de confirmação, alerta de aprovação, geração de PDF).
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Desenvolver script em Google Apps Script para: (1) enviar e-mail de confirmação ao cadastrado; (2) mover linha para aba `Pendentes` até aprovação; (3) gerar PDF do cadastro formatado e salvar no Drive |
-| **Neci** | Criar template visual do PDF do cadastro (layout, logo ASAP, campos organizados); escrever o texto do e-mail de confirmação e do alerta para a coordenadora |
-| **Heloísa** | Testar fluxo completo: preencher formulário → verificar Sheets → checar e-mail → verificar PDF gerado; documentar bugs e melhorias; validar com assistente social da ASAP |
-
-**Entrega ao final:** automação funcional de ponta a ponta testada com dados reais de teste.
-
----
-
-### Sprint 3 — Prevenção de Duplicatas e Painel (19/05 – 01/06)
-**Objetivo:** implementar checagem de CPF duplicado e painel de visualização para a gestão.
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Implementar lógica de detecção de CPF duplicado via Apps Script (verificar CPF na planilha antes de confirmar cadastro; alertar por e-mail se duplicata detectada); publicar MVP do painel web (GitHub Pages) |
-| **Neci** | Prototipar e finalizar o painel de visualização (lista de cadastros, filtros por status: ativo/pendente, busca por nome/CPF); garantir que o painel é acessível em dispositivos móveis |
-| **Heloísa** | Testar casos de borda: CPF duplicado, campos faltando, upload sem arquivo; criar manual de uso do sistema para a coordenação da ASAP (Google Docs, passo a passo com prints) |
-
-**Entrega ao final:** duplicatas bloqueadas, painel web funcionando, manual de uso pronto.
-
----
-
-### Sprint 4 — Exportação, Testes Finais e Entrega (02/06 – 20/06)
-**Objetivo:** finalizar exportação de dados, ajustes finais, treinar a equipe ASAP e entregar.
-
-| Responsável | Tarefa |
-|---|---|
-| **Dallyla** | Implementar exportação para Excel e PDF via Apps Script (botão no painel ou script agendado); garantir backup automático semanal da planilha; escrever documentação técnica do sistema |
-| **Neci** | Aplicar feedbacks de UX da equipe ASAP; ajustar textos do formulário e e-mails conforme necessário; preparar apresentação final do projeto (slides) |
-| **Heloísa** | Conduzir sessão de treinamento com a equipe ASAP (coordenadora + assistente social); coletar feedback pós-treinamento; garantir que o sistema está em conformidade com LGPD na versão final |
-
-**Entrega ao final:** sistema entregue, equipe ASAP treinada, documentação completa, apresentação da disciplina pronta.
-
----
-
-## 📦 Artefatos de Entrega
-
-- [ ] Google Forms publicado e conectado à Sheets
-- [ ] Planilha com abas `Cadastros`, `Pendentes`, `Log`
-- [ ] Script de automação (confirmação, aprovação, PDF)
-- [ ] Painel web de visualização (GitHub Pages)
-- [ ] Termos LGPD e de Uso de Imagem
-- [ ] Manual de uso para a ASAP
-- [ ] Documentação técnica do sistema
-- [ ] Apresentação final da disciplina
-
----
-
-## ⚠️ Riscos e Mitigações
-
-| Risco | Mitigação |
-|---|---|
-| Equipe ASAP sem conta Google | Criar conta institucional gratuita no início da Sprint 0 |
-| Limite de respostas do Forms | Sheets suporta até 5 milhões de células — sem risco para o volume do projeto |
-| Perda de dados | Habilitar histórico de versões no Sheets + backup manual na Sprint 4 |
-| LGPD | Acesso restrito, termos assinados digitalmente, dados sensíveis com permissão diferenciada |
-
----
-
-*Documento gerado em 17/04/2026 · Projeto de Extensão Universitária*
+| POST | `/api/auth/token` | Login |
+| GET | `/api/auth/me` | Usuário logado |
+| POST | `/api/auth/usuarios` | Criar usuário (somente coordenadora) |
+| GET | `/api/cadastros` | Listar (com filtros) |
+| GET | `/api/cadastros/export/cadastros.csv` | Exportar cadastros em CSV compatível com Excel |
+| GET | `/api/cadastros/export/graficos.csv` | Exportar resumo dos gráficos em CSV compatível com Excel |
+| POST | `/api/cadastros` | Criar cadastro |
+| GET | `/api/cadastros/{id}` | Detalhe |
+| PATCH | `/api/cadastros/{id}` | Editar |
+| DELETE | `/api/cadastros/{id}` | Excluir cadastro (somente coordenadora) |
+| POST | `/api/cadastros/{id}/aprovar` | Aprovar |
+| GET | `/api/cadastros/{id}/pdf` | Baixar PDF |
+| POST | `/api/cadastros/{id}/documentos/{tipo}` | Upload de documento |
