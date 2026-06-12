@@ -196,7 +196,7 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
         max_age=max_age,
         path="/",
     )
-    return {"message": "ok"}
+    return {"access_token": token, "token_type": "bearer"}
 
 
 @router.post("/logout")

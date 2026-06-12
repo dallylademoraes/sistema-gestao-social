@@ -24,8 +24,8 @@ export default function ListaCadastros() {
     pcd: searchParams.get('pcd') || undefined,
     lgpd_concluido: searchParams.get('lgpd') || undefined,
   }
-  const [lista, setLista] = useState(() => api.getCachedList(paramsIniciais) || [])
-  const [carregando, setCarregando] = useState(() => !api.getCachedList(paramsIniciais))
+  const [lista, setLista] = useState([])
+  const [carregando, setCarregando] = useState(true)
   const [exportando, setExportando] = useState(false)
   const [erro, setErro] = useState('')
   const podeCriarOuEditarCadastro = ['coordenadora', 'assistente'].includes(usuario?.perfil)
@@ -50,21 +50,8 @@ export default function ListaCadastros() {
   const carregar = (valores = { busca, status, pcd, lgpd }) => {
     setErro('')
     const params = paramsApi(valores)
-    const cached = api.getCachedList(params)
-    if (cached) {
-      setLista(cached)
-      setCarregando(false)
-    } else {
-      setCarregando(true)
-    }
+    setCarregando(true)
     api.listarCached(params)
-      .then((r) => setLista(r.data))
-      .catch(() => {
-        setLista([])
-        setErro('Não foi possível carregar os cadastros.')
-      })
-      .finally(() => setCarregando(false))
-  }
 
   const atualizarFiltro = (campo, valor) => {
     const valores = { busca, status, pcd, lgpd, [campo]: valor }
