@@ -191,8 +191,8 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
         key="access_token",
         value=token,
         httponly=True,
-        secure=secure_cookie,
-        samesite="lax",
+        secure=True,        # obrigatório para SameSite=None
+        samesite="none",     # permite cookie cross-site
         max_age=max_age,
         path="/",
     )
@@ -202,7 +202,7 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
 @router.post("/logout")
 def logout(response: Response):
     # Remove the access_token cookie from the browser
-    response.delete_cookie("access_token", path="/", samesite="lax")
+    response.delete_cookie("access_token", path="/", samesite="none")
     return {"message": "logged out"}
 
 
