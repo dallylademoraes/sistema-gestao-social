@@ -52,6 +52,13 @@ export default function ListaCadastros() {
     const params = paramsApi(valores)
     setCarregando(true)
     api.listarCached(params)
+      .then((r) => setLista(r.data))
+      .catch(() => {
+        setLista([])
+        setErro('Não foi possível carregar os cadastros.')
+      })
+      .finally(() => setCarregando(false))
+  }
 
   const atualizarFiltro = (campo, valor) => {
     const valores = { busca, status, pcd, lgpd, [campo]: valor }
