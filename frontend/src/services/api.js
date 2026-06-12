@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 // Send credentials (cookies) with requests so server-set HttpOnly cookie is included
-const api = axios.create({ baseURL: '/api', withCredentials: true })
+const api = axios.create({ baseURL: import.meta.env.VITE_API_URL + '/api', withCredentials: true })
 
 const cadastrosListCache = new Map()
 const CADASTROS_CACHE_MS = 5 * 60 * 1000
@@ -118,6 +118,11 @@ export const cadastros = {
   },
   exportarGraficosXlsx: async (params) => {
     const r = await api.get('/cadastros/export/graficos.xlsx', { params, responseType: 'blob' })
+    return r.data
+  },
+  relatorioComparativoMensal: () => api.get('/cadastros/relatorios/comparativo-mensal'),
+  exportarRelatorioComparativoMensalPdf: async () => {
+    const r = await api.get('/cadastros/relatorios/comparativo-mensal.pdf', { responseType: 'blob' })
     return r.data
   },
   criar: (data) => api.post('/cadastros/', data).then((r) => { clearCadastrosCache(); return r }),

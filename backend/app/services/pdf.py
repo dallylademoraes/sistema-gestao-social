@@ -101,3 +101,69 @@ def gerar_pdf_cadastro(cadastro: Cadastro) -> bytes:
 
     doc.build(elementos)
     return buffer.getvalue()
+
+
+def gerar_pdf_relatorio_comparativo_mensal(relatorio: dict) -> bytes:
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+    styles = getSampleStyleSheet()
+    titulo = ParagraphStyle("titulo_rel", parent=styles["Heading1"], fontSize=16, spaceAfter=6)
+    subtitulo = ParagraphStyle("sub_rel", parent=styles["Heading2"], fontSize=11, spaceAfter=5, textColor=colors.HexColor("#1D9E75"))
+    corpo = styles["Normal"]
+
+    atual = relatorio.get("periodo_atual", {})
+    anterior = relatorio.get("periodo_anterior", {})
+    variacao = relatorio.get("variacao", {})
+
+    def linha(label: str, chave: str):
+        va = atual.get(chave, 0)
+        vb = anterior.get(chave, 0)
+        vv = variacao.get(chave, 0)
+        sinal = "+" if isinstance(vv, (int, float)) and vv > 0 else ""
+        return [
+            Paragraph(f"<b>{label}</b>", corpo),
+            Paragraph(str(va), corpo),
+            Paragraph(str(vb), corpo),
+            Paragraph(f"{sinal}{vv}%", corpo),
+        ]
+
+    elementos = [
+        *_elemento_logo_asap(),
+        Paragraph("ASAP — Relatório Comparativo Mensal", titulo),
+        Paragraph(
+            f"Período atual: {relatorio.get('periodo_atual_label', '—')} · "
+            f"Período anterior: {relatorio.get('periodo_anterior_label', '—')}",
+            corpo,
+        ),
+        Spacer(1, 0.4 * cm),
+        Paragraph("Resumo de Indicadores", subtitulo),
+        Table(
+            [
+                ["Indicador", "Mês atual", "Mês anterior", "Variação"],
+                linha("Novos cadastros", "novos_cadastros"),
+                linha("Cadastros ativos", "ativos"),
+                linha("Pendentes", "pendentes"),
+                linha("Com encaminhamento", "com_encaminhamento"),
+            ],
+            colWidths=[6.5 * cm, 3 * cm, 3.2 * cm, 3.3 * cm],
+            style=TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF6F1")),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FCFA")]),
+                    ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CCCCCC")),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            ),
+        ),
+        Spacer(1, 0.5 * cm),
+        Paragraph(
+            "Este resumo compara o desempenho do mês atual com o mês imediatamente anterior, "
+            "apoiando decisões operacionais da assistência social.",
+            corpo,
+        ),
+    ]
+
+    doc.build(elementos)
+    return buffer.getvalue()

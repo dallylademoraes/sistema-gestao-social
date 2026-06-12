@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import base64
 import csv
 import io
@@ -29,7 +29,7 @@ from app.schemas.cadastro import (
     ExcluirCadastroPayload,
 )
 from app.core.security import usuario_atual, requer_perfil
-from app.services.pdf import gerar_pdf_cadastro
+from app.services.pdf import gerar_pdf_cadastro, gerar_pdf_relatorio_comparativo_mensal
 from app.services.pdf_termos import gerar_pdf_termo_acordo
 from app.services.audit import registrar_auditoria
 from app.services.arquivos import (
@@ -471,6 +471,77 @@ def _linhas_resumo_graficos(cadastros: list[Cadastro]) -> list[list[object]]:
     return linhas
 
 
+def _inicio_do_mes(ref: date) -> date:
+    return ref.replace(day=1)
+
+
+def _proximo_mes(ref: date) -> date:
+    if ref.month == 12:
+        return date(ref.year + 1, 1, 1)
+    return date(ref.year, ref.month + 1, 1)
+
+
+def _label_periodo(ref: date) -> str:
+    return f"{MESES_PT[ref.month - 1]}/{ref.year}"
+
+
+def _percentual_variacao(atual: int, anterior: int) -> int:
+    if anterior <= 0:
+        return 100 if atual > 0 else 0
+    return int(round(((atual - anterior) / anterior) * 100))
+
+
+def _normalizar_data_criacao(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=None) if dt.tzinfo else dt
+
+
+def _resumir_periodo(cadastros: list[Cadastro], inicio: datetime, fim: datetime) -> dict[str, int]:
+    itens = []
+    for cadastro in cadastros:
+        criado_em = _normalizar_data_criacao(cadastro.criado_em)
+        if criado_em and inicio <= criado_em < fim:
+            itens.append(cadastro)
+    total = len(itens)
+    ativos = sum(1 for c in itens if c.status == "ativo")
+    pendentes = sum(1 for c in itens if c.status == "pendente")
+    com_encaminhamento = sum(1 for c in itens if c.com_encaminhamento)
+    return {
+        "novos_cadastros": total,
+        "ativos": ativos,
+        "pendentes": pendentes,
+        "com_encaminhamento": com_encaminhamento,
+    }
+
+
+def _gerar_relatorio_comparativo_mensal(cadastros: list[Cadastro]) -> dict:
+    hoje = date.today()
+    inicio_atual_date = _inicio_do_mes(hoje)
+    inicio_anterior_date = _inicio_do_mes(inicio_atual_date - timedelta(days=1))
+    fim_atual_date = _proximo_mes(inicio_atual_date)
+
+    inicio_anterior = datetime.combine(inicio_anterior_date, datetime.min.time())
+    inicio_atual = datetime.combine(inicio_atual_date, datetime.min.time())
+    fim_atual = datetime.combine(fim_atual_date, datetime.min.time())
+
+    atual = _resumir_periodo(cadastros, inicio_atual, fim_atual)
+    anterior = _resumir_periodo(cadastros, inicio_anterior, inicio_atual)
+    variacao = {
+        chave: _percentual_variacao(atual[chave], anterior[chave])
+        for chave in atual.keys()
+    }
+
+    return {
+        "periodo_atual_label": _label_periodo(inicio_atual_date),
+        "periodo_anterior_label": _label_periodo(inicio_anterior_date),
+        "periodo_atual": atual,
+        "periodo_anterior": anterior,
+        "variacao": variacao,
+        "gerado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
+    }
+
+
 def _montar_saida_cadastro(db: Session, cadastro: Cadastro) -> CadastroOut:
     lgpd = _obter_lgpd(db, cadastro.id)
     tem_termos = bool(cadastro.termo_lgpd_url) and bool(cadastro.termo_imagem_url)
@@ -798,6 +869,30 @@ def exportar_graficos_xlsx(
     return Response(content=output.read(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={
         'Content-Disposition': header_content_disposition_attachment(_nome_arquivo_export('resumo_graficos_asap', 'xlsx'))
     })
+
+
+@router.get("/relatorios/comparativo-mensal")
+def relatorio_comparativo_mensal(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(usuario_atual),
+):
+    cadastros = _listar_cadastros_filtrados(db)
+    return _gerar_relatorio_comparativo_mensal(cadastros)
+
+
+@router.get("/relatorios/comparativo-mensal.pdf")
+def exportar_relatorio_comparativo_mensal_pdf(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(usuario_atual),
+):
+    cadastros = _listar_cadastros_filtrados(db)
+    relatorio = _gerar_relatorio_comparativo_mensal(cadastros)
+    pdf = gerar_pdf_relatorio_comparativo_mensal(relatorio)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": header_content_disposition_attachment(_nome_arquivo_export("relatorio_comparativo_mensal_asap", "pdf"))},
+    )
 
 
 @router.post("/", response_model=CadastroOut, status_code=201)

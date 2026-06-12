@@ -39,14 +39,19 @@ export default function Painel() {
   const [carregando, setCarregando] = useState(() => !api.getCachedList(painelParams))
   const [exportando, setExportando] = useState('')
   const [erro, setErro] = useState('')
+  const [comparativo, setComparativo] = useState(null)
 
   const carregar = useCallback(() => {
     setErro('')
     const cached = api.getCachedList(painelParams)
     if (!cached) setCarregando(true)
-    return api.listarCached(painelParams)
-      .then((r) => {
+    return Promise.all([
+      api.listarCached(painelParams),
+      api.relatorioComparativoMensal().catch(() => null),
+    ])
+      .then(([r, relatorio]) => {
         setLista(Array.isArray(r.data) ? r.data : [])
+        if (relatorio?.data) setComparativo(relatorio.data)
       })
       .catch(() => {
         setLista([])
@@ -115,6 +120,22 @@ export default function Painel() {
     }
   }
 
+  const exportarComparativoPdf = async () => {
+    setExportando('comparativo')
+    try {
+      const blob = await api.exportarRelatorioComparativoMensalPdf()
+      baixarBlob(blob, 'relatorio_comparativo_mensal_asap.pdf')
+    } finally {
+      setExportando('')
+    }
+  }
+
+  const variacaoLabel = (valor) => {
+    if (typeof valor !== 'number') return '0%'
+    const sinal = valor > 0 ? '+' : ''
+    return `${sinal}${valor}%`
+  }
+
   const acaoPngGrafico = (titulo, data) => (
     <button
       type="button"
@@ -157,6 +178,36 @@ export default function Painel() {
         <Metrica label="Pendentes" valor={carregando ? '…' : pendentes} cor="var(--metric-accent-2)" />
         <Metrica label="Com encaminhamento" valor={carregando ? '…' : comEncam} cor="var(--metric-accent-3)" />
       </div>
+
+      {comparativo && (
+        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Relatório comparativo mensal</h2>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+                {comparativo.periodo_anterior_label} vs {comparativo.periodo_atual_label}
+              </p>
+            </div>
+            <button type="button" className="btn-compact" onClick={exportarComparativoPdf} disabled={Boolean(exportando)}>
+              {exportando === 'comparativo' ? 'Exportando...' : 'Exportar comparativo (PDF)'}
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 12 }}>
+            <Metrica label="Novos cadastros" valor={comparativo.periodo_atual?.novos_cadastros ?? 0} />
+            <Metrica label="Ativos no mês" valor={comparativo.periodo_atual?.ativos ?? 0} cor="var(--metric-accent-1)" />
+            <Metrica label="Pendentes no mês" valor={comparativo.periodo_atual?.pendentes ?? 0} cor="var(--metric-accent-2)" />
+            <Metrica label="Com encaminhamento" valor={comparativo.periodo_atual?.com_encaminhamento ?? 0} cor="var(--metric-accent-3)" />
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <span className="badge">Novos: {variacaoLabel(comparativo.variacao?.novos_cadastros)}</span>
+            <span className="badge">Ativos: {variacaoLabel(comparativo.variacao?.ativos)}</span>
+            <span className="badge">Pendentes: {variacaoLabel(comparativo.variacao?.pendentes)}</span>
+            <span className="badge">Encaminhamento: {variacaoLabel(comparativo.variacao?.com_encaminhamento)}</span>
+          </div>
+        </div>
+      )}
 
       {erro && (
         <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem', color: 'var(--danger)', fontSize: 14, marginBottom: '1.5rem' }}>
