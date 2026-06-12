@@ -76,20 +76,20 @@ export const auth = {
   login: async (email, senha) => {
     const response = await api.post('/auth/token', new URLSearchParams({ username: email, password: senha }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
-    if (response.data.access_token) localStorage.setItem('token', response.data.access_token)
+    
+    // DEBUG: Vamos ver o que o servidor está nos devolvendo
+    console.log("Resposta do servidor no login:", response.data);
+
+    // Verificamos o campo correto (seja access_token ou token)
+    const token = response.data.access_token || response.data.token;
+    
+    if (token) {
+      localStorage.setItem('token', token);
+      console.log("Token salvo com sucesso!");
+    } else {
+      console.error("ERRO: O servidor não enviou um token válido!");
+    }
     return response
-  },
-  me: () => api.get('/auth/me'),
-  listarUsuarios: () => api.get('/auth/usuarios'),
-  criarUsuario: (data) => api.post('/auth/usuarios', data),
-  atualizarUsuario: (id, data) => api.patch(`/auth/usuarios/${id}`, data),
-  listarAuditoria: (params) => api.get('/auth/auditoria', { params }),
-  exportarAuditoria: (params) => api.get('/auth/auditoria/export', { params, responseType: 'blob' }),
-  forgotPassword: (email) => api.post('/auth/password/forgot', { email }),
-  resetPassword: (token, novaSenha) => api.post('/auth/password/reset', { token, nova_senha: novaSenha }),
-  logout: () => {
-    localStorage.removeItem('token')
-    return api.post('/auth/logout')
   },
 }
 
