@@ -40,7 +40,7 @@ const cacheKey = (params = {}) => {
   return JSON.stringify(clean)
 }
 
-const getCachedList = (params = {}) => {
+export const getCachedList = (params = {}) => {
   const key = cacheKey(params)
   const item = cadastrosListCache.get(key)
   if (!item) {
