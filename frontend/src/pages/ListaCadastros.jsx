@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { cadastros as api } from '../services/api'
+import { cadastros } from '../services/api' // Correção: importando o objeto correto
 import { baixarBlob } from '../utils/exportCsv'
 
 const badge = {
@@ -18,12 +18,6 @@ export default function ListaCadastros() {
   const [status, setStatus] = useState(searchParams.get('status') || '')
   const [pcd, setPcd] = useState(searchParams.get('pcd') || '')
   const [lgpd, setLgpd] = useState(searchParams.get('lgpd') || '')
-  const paramsIniciais = {
-    busca: searchParams.get('busca') || undefined,
-    status: searchParams.get('status') || undefined,
-    pcd: searchParams.get('pcd') || undefined,
-    lgpd_concluido: searchParams.get('lgpd') || undefined,
-  }
   const [lista, setLista] = useState([])
   const [carregando, setCarregando] = useState(true)
   const [exportando, setExportando] = useState(false)
@@ -51,7 +45,8 @@ export default function ListaCadastros() {
     setErro('')
     const params = paramsApi(valores)
     setCarregando(true)
-    api.listarCached(params)
+    // Correção: usando 'cadastros' em vez de 'api'
+    cadastros.listarCached(params)
       .then((r) => setLista(r.data))
       .catch(() => {
         setLista([])
@@ -98,7 +93,8 @@ export default function ListaCadastros() {
   const exportarCadastros = async () => {
     setExportando(true)
     try {
-      const blob = await api.exportarCadastrosXlsx(paramsAtuais())
+      // Correção: usando 'cadastros' em vez de 'api'
+      const blob = await cadastros.exportarCadastrosXlsx(paramsAtuais())
       baixarBlob(blob, 'cadastros_asap.xlsx')
     } finally {
       setExportando(false)
