@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { cadastros as api } from '../services/api'
+import { cadastros as api, normalizarLista } from '../services/api'
 import { baixarBlob } from '../utils/exportCsv'
 
 const badge = {
@@ -58,7 +58,7 @@ export default function ListaCadastros() {
       setCarregando(true)
     }
     api.listarCached(params)
-      .then((r) => setLista(r.data))
+      .then((r) => setLista(normalizarLista(r.data)))
       .catch(() => {
         setLista([])
         setErro('Não foi possível carregar os cadastros.')

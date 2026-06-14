@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import BarChart from '../components/charts/BarChart'
 import ChartCard from '../components/charts/ChartCard'
 import DonutChart from '../components/charts/DonutChart'
-import { cadastros as api } from '../services/api'
+import { cadastros as api, normalizarLista } from '../services/api'
 import { baixarBlob, baixarGraficoPng } from '../utils/exportCsv'
 import {
     cadastrosPorMes,
@@ -50,7 +50,7 @@ export default function Painel() {
       api.relatorioComparativoMensal().catch(() => null),
     ])
       .then(([r, relatorio]) => {
-        setLista(Array.isArray(r.data) ? r.data : [])
+        setLista(normalizarLista(r.data))
         if (relatorio?.data) setComparativo(relatorio.data)
       })
       .catch(() => {

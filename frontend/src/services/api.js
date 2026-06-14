@@ -58,6 +58,14 @@ const clearCadastrosCache = () => {
   }
 }
 
+export const normalizarLista = (payload) => {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.results)) return payload.results
+  return []
+}
+
 // With cookie-based auth we don't attach Authorization header from localStorage.
 // Keep a simple response interceptor to redirect on 401.
 api.interceptors.response.use(
@@ -94,13 +102,14 @@ export const cadastros = {
     const cached = getCachedList(params)
     if (cached) {
       api.get('/cadastros/', { params: { ...params, _ts: Date.now() } })
-        .then((r) => setCachedList(params, r.data))
+        .then((r) => setCachedList(params, normalizarLista(r.data)))
         .catch(() => {})
       return { data: cached, cached: true }
     }
     const r = await api.get('/cadastros/', { params: { ...params, _ts: Date.now() } })
-    setCachedList(params, r.data)
-    return r
+    const data = normalizarLista(r.data)
+    setCachedList(params, data)
+    return { ...r, data }
   },
   getCachedList,
   buscar: (id) => api.get(`/cadastros/${id}`),
