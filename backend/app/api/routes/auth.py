@@ -147,6 +147,16 @@ def _registrar_falha_login(db: Session, identifier: str, agora: datetime) -> Non
     db.flush()
 
 
+def _auth_cookie_options() -> dict:
+    secure_cookie = settings.FRONTEND_URL.startswith("https://")
+    return {
+        "httponly": True,
+        "secure": secure_cookie,
+        "samesite": "none" if secure_cookie else "lax",
+        "path": "/",
+    }
+
+
 @router.post("/token")
 def login(request: Request, response: Response, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     agora = datetime.now(timezone.utc)
@@ -181,35 +191,18 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
         _limpar_throttle(db, chave)
     db.commit()
     token = criar_token({"sub": usuario.email, "perfil": usuario.perfil})
-    # Cross-site deploys (Vercel frontend + Render backend) require SameSite=None
-    # and Secure so the browser sends the auth cookie on XHR/fetch requests.
-    try:
-        secure_cookie = settings.FRONTEND_URL.startswith("https://")
-    except Exception:
-        secure_cookie = False
-    cookie_samesite = "none" if secure_cookie else "lax"
-    max_age = int(settings.ACCESS_TOKEN_EXPIRE_MINUTES) * 60
     response.set_cookie(
         key="access_token",
         value=token,
-        httponly=True,
-        secure=secure_cookie,
-        samesite=cookie_samesite,
-        max_age=max_age,
-        path="/",
+        max_age=int(settings.ACCESS_TOKEN_EXPIRE_MINUTES) * 60,
+        **_auth_cookie_options(),
     )
     return {"message": "ok"}
 
 
 @router.post("/logout")
 def logout(response: Response):
-    # Remove the access_token cookie from the browser
-    try:
-        secure_cookie = settings.FRONTEND_URL.startswith("https://")
-    except Exception:
-        secure_cookie = False
-    cookie_samesite = "none" if secure_cookie else "lax"
-    response.delete_cookie("access_token", path="/", secure=secure_cookie, samesite=cookie_samesite)
+    response.delete_cookie("access_token", **_auth_cookie_options())
     return {"message": "logged out"}
 
 
