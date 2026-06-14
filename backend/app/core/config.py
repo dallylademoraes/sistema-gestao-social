@@ -33,7 +33,19 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        origins = [
+            origin.strip().rstrip("/")
+            for origin in self.CORS_ORIGINS.split(",")
+            if origin.strip()
+        ]
+        for origin in (
+            self.FRONTEND_URL,
+            "https://sistema-gestao-social.vercel.app",
+        ):
+            clean_origin = origin.strip().rstrip("/") if origin else ""
+            if clean_origin and clean_origin not in origins:
+                origins.append(clean_origin)
+        return origins
 
 
 settings = Settings()

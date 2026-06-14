@@ -1,141 +1,116 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
-import BarChart from '../components/charts/BarChart'
-import ChartCard from '../components/charts/ChartCard'
-import DonutChart from '../components/charts/DonutChart'
-import api, { cadastros } from '../services/api'
-import { baixarBlob, baixarGraficoPng } from '../utils/exportCsv'
-import {
-    cadastrosPorMes,
-    corRacaDistribuicao,
-    encaminhamentoDistribuicao,
-    faixaEtariaDistribuicao,
-    identidadeGeneroDistribuicao,
-    pcdDistribuicao,
-    rendaDistribuicao,
-    statusDistribuicao,
-    topCidades,
-} from '../utils/painelStats'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
+import { cadastros as api, normalizarLista } from '../services/api'
+import { baixarBlob } from '../utils/exportCsv'
 
-function Metrica({ label, valor, cor }) {
-  return (
-    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem 1.25rem' }}>
-      <div style={{ fontSize: 12, color: 'var(--text-soft)', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 600, color: cor || 'var(--text-main)' }}>{valor}</div>
-    </div>
-  )
+const badge = {
+  ativo: { background: 'var(--badge-active-bg)', color: 'var(--badge-active-text)' },
+  pendente: { background: 'var(--badge-pending-bg)', color: 'var(--badge-pending-text)' },
+  inativo: { background: 'var(--badge-inactive-bg)', color: 'var(--badge-inactive-text)' },
 }
 
-const CORES_STATUS = {
-  Ativos: 'var(--metric-accent-1)',
-  Pendentes: 'var(--metric-accent-2)',
-  Inativos: 'var(--text-soft)',
-}
-
-export default function Painel() {
+export default function ListaCadastros() {
+  const { usuario } = useAuth()
   const location = useLocation()
-  const painelParams = { limit: 500 }
-  const [lista, setLista] = useState([])
-  const [carregando, setCarregando] = useState(true)
-  const [exportando, setExportando] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [busca, setBusca] = useState(searchParams.get('busca') || '')
+  const [status, setStatus] = useState(searchParams.get('status') || '')
+  const [pcd, setPcd] = useState(searchParams.get('pcd') || '')
+  const [lgpd, setLgpd] = useState(searchParams.get('lgpd') || '')
+  const paramsIniciais = {
+    busca: searchParams.get('busca') || undefined,
+    status: searchParams.get('status') || undefined,
+    pcd: searchParams.get('pcd') || undefined,
+    lgpd_concluido: searchParams.get('lgpd') || undefined,
+  }
+  const [lista, setLista] = useState(() => api.getCachedList(paramsIniciais) || [])
+  const [carregando, setCarregando] = useState(() => !api.getCachedList(paramsIniciais))
+  const [exportando, setExportando] = useState(false)
   const [erro, setErro] = useState('')
-  const [comparativo, setComparativo] = useState(null)
+  const podeCriarOuEditarCadastro = ['coordenadora', 'assistente'].includes(usuario?.perfil)
 
-  const carregar = useCallback(() => {
+  const paramsDaTela = (valores = { busca, status, pcd, lgpd }) => {
+    const params = {}
+    if (valores.busca) params.busca = valores.busca
+    if (valores.status) params.status = valores.status
+    if (valores.pcd) params.pcd = valores.pcd
+    if (valores.lgpd) params.lgpd = valores.lgpd
+    return params
+  }
+
+  const paramsApi = (valores = { busca, status, pcd, lgpd }) => ({
+    busca: valores.busca || undefined,
+    status: valores.status || undefined,
+    pcd: valores.pcd || undefined,
+    lgpd_concluido: valores.lgpd || undefined,
+    _ts: Date.now(),
+  })
+
+  const carregar = (valores = { busca, status, pcd, lgpd }) => {
     setErro('')
-    // Verifica cache antes de iniciar carregamento
-    const cached = cadastros.listarCached(painelParams)
-    if (!cached) setCarregando(true)
-    
-    return Promise.all([
-      cadastros.listarCached(painelParams),
-      api.get('/cadastros/relatorio/comparativo').catch(() => null),
-    ])
-      .then(([r, relatorio]) => {
-        setLista(Array.isArray(r.data) ? r.data : [])
-        if (relatorio?.data) setComparativo(relatorio.data)
-      })
+    const params = paramsApi(valores)
+    const cached = api.getCachedList(params)
+    if (cached) {
+      setLista(cached)
+      setCarregando(false)
+    } else {
+      setCarregando(true)
+    }
+    api.listarCached(params)
+      .then((r) => setLista(normalizarLista(r.data)))
       .catch(() => {
         setLista([])
-        setErro('Não foi possível carregar os dados do painel.')
+        setErro('Não foi possível carregar os cadastros.')
       })
       .finally(() => setCarregando(false))
-  }, [])
+  }
+
+  const atualizarFiltro = (campo, valor) => {
+    const valores = { busca, status, pcd, lgpd, [campo]: valor }
+    if (campo === 'status') setStatus(valor)
+    if (campo === 'pcd') setPcd(valor)
+    if (campo === 'lgpd') setLgpd(valor)
+    setSearchParams(paramsDaTela(valores))
+  }
 
   useEffect(() => {
-    carregar()
-  }, [carregar, location.key])
-
-  const stats = useMemo(() => {
-    const porStatus = statusDistribuicao(lista).map((d) => ({
-      ...d,
-      color: CORES_STATUS[d.label] || undefined,
-    }))
-    return {
-      porStatus,
-      porMes: cadastrosPorMes(lista),
-      cidades: topCidades(lista),
-      pcd: pcdDistribuicao(lista),
-      genero: identidadeGeneroDistribuicao(lista),
-      corRaca: corRacaDistribuicao(lista),
-      renda: rendaDistribuicao(lista),
-      faixaEtaria: faixaEtariaDistribuicao(lista),
-      encaminhamentos: encaminhamentoDistribuicao(lista),
+    const valores = {
+      busca: searchParams.get('busca') || '',
+      status: searchParams.get('status') || '',
+      pcd: searchParams.get('pcd') || '',
+      lgpd: searchParams.get('lgpd') || '',
     }
-  }, [lista])
+    setBusca(valores.busca)
+    setStatus(valores.status)
+    setPcd(valores.pcd)
+    setLgpd(valores.lgpd)
+    carregar(valores)
+  }, [location.key, searchParams])
 
-  const total = lista.length
-  const ativos = lista.filter((c) => c.status === 'ativo').length
-  const pendentes = lista.filter((c) => c.status === 'pendente').length
-  const comEncam = lista.filter((c) => c.com_encaminhamento).length
-  const pendentesLista = lista.filter((c) => c.status === 'pendente')
+  const handleBusca = (e) => {
+    e.preventDefault()
+    const valores = { busca, status, pcd, lgpd }
+    setSearchParams(paramsDaTela(valores))
+  }
+
+  const paramsAtuais = () => ({
+    busca: busca || undefined,
+    status: status || undefined,
+    pcd: pcd || undefined,
+    lgpd_concluido: lgpd || undefined,
+  })
 
   const exportarCadastros = async () => {
-      setExportando('cadastros')
-      try {
-        const blob = await cadastros.exportarCadastrosXlsx()
-        baixarBlob(blob, 'cadastros_asap.xlsx')
-      } finally {
-        setExportando('')
-      }
-    }
-
-  const exportarResumoGraficos = async () => {
-    setExportando('graficos')
+    setExportando(true)
     try {
-      const blob = await cadastros.exportarGraficosXlsx()
-      baixarBlob(blob, 'resumo_graficos_asap.xlsx')
+      const blob = await api.exportarCadastrosXlsx(paramsAtuais())
+      baixarBlob(blob, 'cadastros_asap.xlsx')
     } finally {
-      setExportando('')
+      setExportando(false)
     }
   }
 
-  const exportarComparativoPdf = async () => {
-    setExportando('comparativo')
-    try {
-      const blob = await api.get('/cadastros/export/comparativo.pdf', { responseType: 'blob' }).then(r => r.data)
-      baixarBlob(blob, 'relatorio_comparativo_mensal_asap.pdf')
-    } finally {
-      setExportando('')
-    }
-  }
-
-  const variacaoLabel = (valor) => {
-    if (typeof valor !== 'number') return '0%'
-    const sinal = valor > 0 ? '+' : ''
-    return `${sinal}${valor}%`
-  }
-
-  const acaoPngGrafico = (titulo, data) => (
-    <button
-      type="button"
-      className="btn-compact"
-      onClick={() => baixarGraficoPng(titulo, data)}
-      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', padding: '6px 8px', cursor: 'pointer' }}
-    >
-      PNG
-    </button>
-  )
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
