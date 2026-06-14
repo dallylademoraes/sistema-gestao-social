@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { cadastros as api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmModal from '../components/ConfirmModal'
+import { cadastros as api, buildDocUrl } from '../services/api'
 
 function DocCard({ tipo, label, url, dica, acao, podeCriarOuEditarCadastro, onUpload }) {
   const [enviando, setEnviando] = useState(false)
@@ -362,7 +362,7 @@ export default function DetalheCadastro() {
               key={tipo}
               tipo={tipo}
               label={label}
-              url={url ? urlArquivo(url) : null}
+              url={url ? buildDocUrl(url) : null}
               dica={dica}
               acao={acao}
               podeCriarOuEditarCadastro={podeCriarOuEditarCadastro}
@@ -377,7 +377,7 @@ export default function DetalheCadastro() {
             <div key={label} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
               <div style={{ fontSize: 12, color: 'var(--text-soft)', marginBottom: 6 }}>{label}</div>
               {url
-                ? <a href={urlArquivo(url)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--link)', fontWeight: 700 }}>Baixar PDF</a>
+                ? <a href={buildDocUrl(url)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--link)', fontWeight: 700 }}>Baixar PDF</a>
                 : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Indisponível (cadastro antigo ou erro na geração).</span>
               }
             </div>
