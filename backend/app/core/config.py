@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     FIRST_ADMIN_EMAIL: str | None = None
     FIRST_ADMIN_PASSWORD: str | None = None
+    S3_ENDPOINT_URL: str | None = None
     DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
