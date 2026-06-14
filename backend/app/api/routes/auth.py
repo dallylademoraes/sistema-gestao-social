@@ -181,28 +181,34 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
         _limpar_throttle(db, chave)
     db.commit()
     token = criar_token({"sub": usuario.email, "perfil": usuario.perfil})
-    # set HttpOnly cookie for browser clients
+    # Cross-site deploys (Vercel frontend + Render backend) require SameSite=None
+    # and Secure so the browser sends the auth cookie on XHR/fetch requests.
     try:
         secure_cookie = settings.FRONTEND_URL.startswith("https://")
     except Exception:
         secure_cookie = False
+    cookie_samesite = "none" if secure_cookie else "lax"
     max_age = int(settings.ACCESS_TOKEN_EXPIRE_MINUTES) * 60
-    response.set_cookie(
-        key="access_token",
-        value=token,
-        httponly=True,
-        secure=True,        # obrigatório para SameSite=None
-        samesite="none",     # permite cookie cross-site
-        max_age=max_age,
-        path="/",
-    )
-    return {"access_token": token, "token_type": "bearer"}
-
+response.set_cookie(
+    key="access_token",
+    value=token,
+    httponly=True,
+    secure=secure_cookie,
+    samesite=cookie_samesite,
+    max_age=max_age,
+    path="/",
+)
+return {"access_token": token, "token_type": "bearer"}
+  
 
 @router.post("/logout")
 def logout(response: Response):
-    # Remove the access_token cookie from the browser
-    response.delete_cookie("access_token", path="/", samesite="none")
+    try:
+        secure_cookie = settings.FRONTEND_URL.startswith("https://")
+    except Exception:
+        secure_cookie = False
+    cookie_samesite = "none" if secure_cookie else "lax"
+    response.delete_cookie("access_token", path="/", secure=secure_cookie, samesite=cookie_samesite)
     return {"message": "logged out"}
 
 
