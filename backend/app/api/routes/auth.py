@@ -189,21 +189,20 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
         secure_cookie = False
     cookie_samesite = "none" if secure_cookie else "lax"
     max_age = int(settings.ACCESS_TOKEN_EXPIRE_MINUTES) * 60
-    response.set_cookie(
-        key="access_token",
-        value=token,
-        httponly=True,
-        secure=secure_cookie,
-        samesite=cookie_samesite,
-        max_age=max_age,
-        path="/",
-    )
-    return {"message": "ok"}
-
+response.set_cookie(
+    key="access_token",
+    value=token,
+    httponly=True,
+    secure=secure_cookie,
+    samesite=cookie_samesite,
+    max_age=max_age,
+    path="/",
+)
+return {"access_token": token, "token_type": "bearer"}
+  
 
 @router.post("/logout")
 def logout(response: Response):
-    # Remove the access_token cookie from the browser
     try:
         secure_cookie = settings.FRONTEND_URL.startswith("https://")
     except Exception:
