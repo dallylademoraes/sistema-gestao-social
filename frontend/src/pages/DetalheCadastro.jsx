@@ -4,6 +4,56 @@ import { cadastros as api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmModal from '../components/ConfirmModal'
 
+function DocCard({ tipo, label, url, dica, acao, podeCriarOuEditarCadastro, onUpload }) {
+  const [enviando, setEnviando] = useState(false)
+  const [sucesso, setSucesso] = useState(false)
+
+  const handleUpload = async (arquivo) => {
+    if (!arquivo) return
+    setEnviando(true)
+    setSucesso(false)
+    try {
+      await onUpload(tipo, arquivo)
+      setSucesso(true)
+      setTimeout(() => setSucesso(false), 3000)
+    } catch {
+      alert('Erro ao enviar arquivo. Tente novamente.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-soft)', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>{dica}</div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        {url && (
+          <a href={url} target="_blank" rel="noreferrer"
+            style={{ fontSize: 13, color: 'var(--link)', fontWeight: 700 }}>
+            Ver arquivo
+          </a>
+        )}
+        {podeCriarOuEditarCadastro && (
+          <label style={{
+            fontSize: 13,
+            color: enviando ? 'var(--text-muted)' : 'var(--link)',
+            cursor: enviando ? 'default' : 'pointer',
+            fontWeight: 700
+          }}>
+            {enviando ? 'Enviando...' : sucesso ? '✓ Enviado!' : url ? 'Substituir' : acao}
+            <input type="file" style={{ display: 'none' }} disabled={enviando}
+              onChange={(e) => handleUpload(e.target.files[0])} />
+          </label>
+        )}
+        {!url && !podeCriarOuEditarCadastro && (
+          <span style={{ fontSize: 12, color: 'var(--text-soft)' }}>Sem documento</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const campo = (label, valor) => (
   <div key={label} style={{ marginBottom: 12 }}>
     <div style={{ fontSize: 11, color: 'var(--text-soft)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{label}</div>
@@ -308,17 +358,16 @@ export default function DetalheCadastro() {
         {secao('Documentos')}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {docsUpload.map(({ tipo, label, url, dica, acao }) => (
-            <div key={tipo} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
-              <div style={{ fontSize: 12, color: 'var(--text-soft)', marginBottom: 6 }}>{label}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>{dica}</div>
-              {url
-                ? <a href={urlArquivo(url)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--link)', fontWeight: 700 }}>Ver arquivo</a>
-                : podeCriarOuEditarCadastro ? <label style={{ fontSize: 13, color: 'var(--link)', cursor: 'pointer', fontWeight: 700 }}>
-                    {acao}
-                    <input type="file" style={{ display: 'none' }} onChange={(e) => uploadDoc(tipo, e.target.files[0])} />
-                  </label> : <span style={{ fontSize: 12, color: 'var(--text-soft)' }}>Sem permissão para upload</span>
-              }
-            </div>
+            <DocCard
+              key={tipo}
+              tipo={tipo}
+              label={label}
+              url={url ? urlArquivo(url) : null}
+              dica={dica}
+              acao={acao}
+              podeCriarOuEditarCadastro={podeCriarOuEditarCadastro}
+              onUpload={uploadDoc}
+            />
           ))}
         </div>
 
