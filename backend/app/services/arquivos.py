@@ -106,10 +106,15 @@ def salvar_arquivo_local(storage_ref: str, conteúdo: bytes) -> str:
 
 def _s3_client():
     try:
-        import boto3  # type: ignore
+        import boto3
     except ImportError as exc:
-        raise HTTPException(status_code=500, detail="boto3 não está instalado para STORAGE_PROVIDER=s3") from exc
-    return boto3.client("s3", region_name=getattr(settings, "S3_REGION", None) or None)
+        raise HTTPException(status_code=500, detail="boto3 não está instalado") from exc
+    endpoint = getattr(settings, "S3_ENDPOINT_URL", None) 
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint or None,
+        region_name=getattr(settings, "S3_REGION", None) or None,
+    )
 
 
 def _blob_service_client():
