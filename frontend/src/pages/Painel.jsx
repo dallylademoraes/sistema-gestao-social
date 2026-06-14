@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import BarChart from '../components/charts/BarChart'
 import ChartCard from '../components/charts/ChartCard'
 import DonutChart from '../components/charts/DonutChart'
-import { cadastros as api } from '../services/api'
+import { cadastros, getCachedList } from '../services/api'
 import { baixarBlob, baixarGraficoPng } from '../utils/exportCsv'
 import {
     cadastrosPorMes,
@@ -35,15 +35,15 @@ const CORES_STATUS = {
 export default function Painel() {
   const location = useLocation()
   const painelParams = { limit: 500 }
-  const [lista, setLista] = useState(() => api.getCachedList(painelParams) || [])
-  const [carregando, setCarregando] = useState(() => !api.getCachedList(painelParams))
+  const [lista, setLista] = useState([])
+  const [carregando, setCarregando] = useState(true)
   const [exportando, setExportando] = useState('')
   const [erro, setErro] = useState('')
   const [comparativo, setComparativo] = useState(null)
 
   const carregar = useCallback(() => {
     setErro('')
-    const cached = api.getCachedList(painelParams)
+    const cached = cadastros.listarCached(painelParams)
     if (!cached) setCarregando(true)
     return Promise.all([
       api.listarCached(painelParams),
@@ -101,14 +101,14 @@ export default function Painel() {
   const pendentesLista = lista.filter((c) => c.status === 'pendente')
 
   const exportarCadastros = async () => {
-    setExportando('cadastros')
-    try {
-      const blob = await api.exportarCadastrosXlsx()
-      baixarBlob(blob, 'cadastros_asap.xlsx')
-    } finally {
-      setExportando('')
+      setExportando('cadastros')
+      try {
+        const blob = await cadastros.exportarCadastrosXlsx()
+        baixarBlob(blob, 'cadastros_asap.xlsx')
+      } finally {
+        setExportando('')
+      }
     }
-  }
 
   const exportarResumoGraficos = async () => {
     setExportando('graficos')
