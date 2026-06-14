@@ -22,6 +22,12 @@ const getCachedList = (params = {}) => {
   return item.data
 }
 
+export const buildDocUrl = (path) => {
+  if (!path) return null
+  if (path.startsWith('http')) return path
+  return import.meta.env.VITE_API_URL + path
+}
+
 const setCachedList = (params = {}, data = []) => {
   const key = cacheKey(params)
   const item = { at: Date.now(), data }
