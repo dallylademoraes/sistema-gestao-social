@@ -210,16 +210,41 @@ def contar_coordenadoras_ativas_sheets() -> int:
     return sum(1 for usuario in listar_usuarios_sheets() if usuario.perfil == "coordenadora" and usuario.ativo)
 
 
+def _upsert_cache_row(row: dict[str, Any]) -> None:
+    row_id = int(row.get("id") or 0)
+    if not row_id:
+        return
+    global _cache_rows
+    with _cache_lock:
+        if _cache_rows is None:
+            return
+        next_rows = [existing for existing in _cache_rows if int(existing.get("id") or 0) != row_id]
+        next_rows.append(row)
+        next_rows.sort(key=lambda item: str(item.get("criado_em") or ""), reverse=True)
+        _cache_rows = next_rows
+
+
+def _remove_cache_row(usuario_id: int) -> None:
+    global _cache_rows
+    with _cache_lock:
+        if _cache_rows is None:
+            return
+        _cache_rows = [row for row in _cache_rows if int(row.get("id") or 0) != usuario_id]
+
+
 def criar_usuario_sheets(usuario: Any) -> UsuarioSheets:
     row = _call_apps_script("create", {"row": _usuario_to_row(usuario)})
+    _upsert_cache_row(row)
     return _row_to_usuario(row)
 
 
 def atualizar_usuario_sheets(usuario_id: int, dados: dict[str, Any]) -> UsuarioSheets:
     row = _call_apps_script("update", {"id": usuario_id, "row": dados})
+    _upsert_cache_row(row)
     return _row_to_usuario(row)
 
 
 def excluir_usuario_sheets(usuario_id: int) -> bool:
     _call_apps_script("delete", {"id": usuario_id})
+    _remove_cache_row(usuario_id)
     return True

@@ -103,9 +103,12 @@ export default function ListaCadastros() {
 
   const exportarCadastros = async () => {
     setExportando(true)
+    setErro('')
     try {
       const blob = await api.exportarCadastrosXlsx(paramsAtuais())
       baixarBlob(blob, 'cadastros_asap.xlsx')
+    } catch (err) {
+      setErro('Não foi possível exportar a lista para Excel.')
     } finally {
       setExportando(false)
     }

@@ -1,7 +1,8 @@
 import axios from 'axios'
 
 // Send credentials (cookies) with requests so server-set HttpOnly cookie is included
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL + '/api', withCredentials: true })
+const API_ORIGIN = import.meta.env.VITE_API_URL ?? ''
+const api = axios.create({ baseURL: `${API_ORIGIN}/api`, withCredentials: true })
 
 const cadastrosListCache = new Map()
 const CADASTROS_CACHE_MS = 5 * 60 * 1000
@@ -25,7 +26,7 @@ const getCachedList = (params = {}) => {
 export const buildDocUrl = (path) => {
   if (!path) return null
   if (path.startsWith('http')) return path
-  return import.meta.env.VITE_API_URL + path
+  return `${API_ORIGIN}${path}`
 }
 
 const setCachedList = (params = {}, data = []) => {
@@ -77,6 +78,14 @@ export const normalizarLista = (payload) => {
 api.interceptors.response.use(
   (r) => r,
   (err) => {
+    if (err.response?.status === 422 && Array.isArray(err.response.data?.detail)) {
+      const msgs = err.response.data.detail.map(d => {
+        const field = d.loc?.slice(-1)[0]
+        return field ? `${field}: ${d.msg}` : d.msg
+      })
+      err.response.data.detail = msgs.join(' | ')
+    }
+    
     const url = err.config?.url || ''
     const isAuthMe = url.includes('/auth/me')
     const isLoginPage = typeof window !== 'undefined' && window.location.pathname === '/login'
@@ -95,6 +104,7 @@ export const auth = {
   listarUsuarios: () => api.get('/auth/usuarios'),
   criarUsuario: (data) => api.post('/auth/usuarios', data),
   atualizarUsuario: (id, data) => api.patch(`/auth/usuarios/${id}`, data),
+  excluirUsuario: (id) => api.delete(`/auth/usuarios/${id}`),
   listarAuditoria: (params) => api.get('/auth/auditoria', { params }),
   exportarAuditoria: (params) => api.get('/auth/auditoria/export', { params, responseType: 'blob' }),
   forgotPassword: (email) => api.post('/auth/password/forgot', { email }),

@@ -779,7 +779,7 @@ def exportar_cadastros_xlsx(
         ])
 
     output = io.BytesIO()
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True, 'remove_timezone': True})
     ws = workbook.add_worksheet('Cadastros')
     for r, row in enumerate(linhas):
         for c, cell in enumerate(row):

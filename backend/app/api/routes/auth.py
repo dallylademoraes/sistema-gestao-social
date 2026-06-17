@@ -259,6 +259,10 @@ def atualizar_usuario(
     _garantir_coordenadora(atual)
 
     dados = body.model_dump(exclude_unset=True)
+    if "nova_senha" in dados:
+        senha_plana = dados.pop("nova_senha")
+        dados["senha_hash"] = hash_senha(senha_plana)
+
     if not dados:
         if _usuarios_em_planilha():
             alvo_planilha = buscar_usuario_sheets(usuario_id=usuario_id)
@@ -340,6 +344,60 @@ def atualizar_usuario(
         ip_address=request.client.host if request.client else None,
     )
     return alvo
+
+
+@router.delete("/usuarios/{usuario_id}")
+def excluir_usuario(
+    usuario_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    atual: Usuario = Depends(usuario_atual),
+):
+    _garantir_coordenadora(atual)
+
+    if _usuarios_em_planilha():
+        alvo = buscar_usuario_sheets(usuario_id=usuario_id)
+        if not alvo:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        if alvo.id == atual.id:
+            raise HTTPException(status_code=400, detail="Não é permitido excluir seu próprio usuário")
+        if alvo.perfil == "coordenadora" and contar_coordenadoras_ativas_sheets() <= 1:
+            raise HTTPException(status_code=400, detail="Não é permitido remover a última coordenadora ativa")
+        
+        from app.services.sheets_usuarios import excluir_usuario_sheets
+        excluir_usuario_sheets(usuario_id)
+        
+        registrar_auditoria(
+            db,
+            action="user.delete",
+            entity_type="usuario",
+            entity_id=usuario_id,
+            details=f"email={alvo.email}",
+            actor=atual,
+            ip_address=request.client.host if request.client else None,
+        )
+        return {"message": "ok"}
+
+    alvo = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not alvo:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if alvo.id == atual.id:
+        raise HTTPException(status_code=400, detail="Não é permitido excluir seu próprio usuário")
+    if alvo.perfil == "coordenadora" and _contar_coordenadoras_ativas(db) <= 1:
+        raise HTTPException(status_code=400, detail="Não é permitido remover a última coordenadora ativa")
+
+    db.delete(alvo)
+    db.commit()
+    registrar_auditoria(
+        db,
+        action="user.delete",
+        entity_type="usuario",
+        entity_id=usuario_id,
+        details=f"email={alvo.email}",
+        actor=atual,
+        ip_address=request.client.host if request.client else None,
+    )
+    return {"message": "ok"}
 
 
 @router.get("/auditoria", response_model=AuditLogPage)

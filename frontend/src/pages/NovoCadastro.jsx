@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import SignatureCanvas from 'react-signature-canvas'
-import { cadastros as api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
+import { cadastros as api } from '../services/api'
 
 const Input = ({ label, required, children, ...props }) => (
   <div style={{ marginBottom: 12 }}>
@@ -79,6 +79,7 @@ export default function NovoCadastro() {
   const { usuario } = useAuth()
   const formRef = useRef(null)
   const sigRef = useRef(null)
+  const containerRef = useRef(null)
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [salvandoPendente, setSalvandoPendente] = useState(false)
@@ -94,6 +95,29 @@ export default function NovoCadastro() {
       </div>
     )
   }
+
+  // Recalcula o tamanho interno do canvas para alinhar com o tamanho da tela (evita corte do ponteiro)
+  useEffect(() => {
+    const resizeCanvas = () => {
+      if (sigRef.current && containerRef.current) {
+        const canvas = sigRef.current.getCanvas()
+        const ratio = Math.max(window.devicePixelRatio || 1, 1)
+        const w = containerRef.current.offsetWidth
+        const h = containerRef.current.offsetHeight
+        if (canvas.width !== w * ratio || canvas.height !== h * ratio) {
+          const data = sigRef.current.toData()
+          canvas.width = w * ratio
+          canvas.height = h * ratio
+          canvas.getContext('2d').scale(ratio, ratio)
+          sigRef.current.clear()
+          sigRef.current.fromData(data)
+        }
+      }
+    }
+    setTimeout(resizeCanvas, 50)
+    window.addEventListener('resize', resizeCanvas)
+    return () => window.removeEventListener('resize', resizeCanvas)
+  }, [])
 
   const mascaraCPF = (v) => v.replace(/\D/g, '').slice(0, 11)
     .replace(/(\d{3})(\d)/, '$1.$2')
@@ -204,7 +228,7 @@ export default function NovoCadastro() {
 
           <Secao titulo="Contato e endereço" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1.5rem' }}>
-            <Input label="E-mail" name="email" type="email" />
+            <Input label="E-mail" name="email" type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Insira um e-mail válido (ex: nome@dominio.com)" />
             <Input label="Telefone" name="telefone" required placeholder="(63) 90000-0000" />
             <div style={{ gridColumn: '1 / -1' }}><Input label="Endereço" name="endereco" placeholder="Rua, número, bairro" /></div>
             <Input label="Cidade" name="cidade" />
@@ -248,11 +272,11 @@ export default function NovoCadastro() {
           <div style={{ marginBottom: 8 }}>
             <span className="form-label">Assinatura do titular <span style={{ color: '#c0392b' }}>*</span></span>
             <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Use o dedo na tela ou o mouse. Área branca abaixo.</span>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 8, background: '#fff', touchAction: 'none' }}>
+            <div ref={containerRef} style={{ border: '1px solid var(--border)', borderRadius: 8, background: '#fff', touchAction: 'none', height: 160, maxWidth: 440, width: '100%' }}>
               <SignatureCanvas
                 ref={sigRef}
                 penColor="#111"
-                canvasProps={{ width: 440, height: 160, style: { width: '100%', maxWidth: 440, height: 160, display: 'block' } }}
+                canvasProps={{ style: { width: '100%', height: '100%', display: 'block' } }}
               />
             </div>
             <button type="button" className="btn-secondary" style={{ marginTop: 8 }} onClick={() => sigRef.current?.clear()}>

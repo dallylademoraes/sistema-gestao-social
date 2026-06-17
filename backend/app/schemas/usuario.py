@@ -26,6 +26,7 @@ class UsuarioUpdate(BaseModel):
     email: Optional[EmailStr] = None
     perfil: Optional[str] = None
     ativo: Optional[bool] = None
+    nova_senha: Optional[str] = None
 
 
 class AuditLogOut(BaseModel):

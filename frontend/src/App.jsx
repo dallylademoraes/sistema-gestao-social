@@ -14,6 +14,7 @@ import AssinarCadastro from './pages/AssinarCadastro'
 import Usuarios from './pages/Usuarios'
 import EsqueciSenha from './pages/EsqueciSenha'
 import RedefinirSenha from './pages/RedefinirSenha'
+import FAQ from './pages/FAQ'
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
                 <Route path="/cadastros/:id/editar" element={<EditarCadastro />} />
                 <Route path="/cadastros/:id" element={<DetalheCadastro />} />
                 <Route path="/usuarios" element={<Usuarios />} />
+                <Route path="/faq" element={<FAQ />} />
               </Route>
             </Routes>
           </BrowserRouter>

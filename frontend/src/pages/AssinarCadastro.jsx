@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import SignatureCanvas from 'react-signature-canvas'
-import { cadastros as api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
+import { cadastros as api } from '../services/api'
 
 function formatarErroApi(err) {
   const d = err.response?.data?.detail
@@ -17,6 +17,7 @@ export default function AssinarCadastro() {
   const navigate = useNavigate()
   const { usuario } = useAuth()
   const sigRef = useRef(null)
+  const containerRef = useRef(null)
   const [cadastro, setCadastro] = useState(null)
   const [aceiteLgpd, setAceiteLgpd] = useState(false)
   const [aceiteImagem, setAceiteImagem] = useState(false)
@@ -27,6 +28,31 @@ export default function AssinarCadastro() {
   useEffect(() => {
     api.buscar(id).then((r) => setCadastro(r.data))
   }, [id])
+
+  // Recalcula o tamanho interno do canvas para alinhar com o tamanho da tela (evita corte do ponteiro)
+  useEffect(() => {
+    const resizeCanvas = () => {
+      if (sigRef.current && containerRef.current) {
+        const canvas = sigRef.current.getCanvas()
+        const ratio = Math.max(window.devicePixelRatio || 1, 1)
+        const w = containerRef.current.offsetWidth
+        const h = containerRef.current.offsetHeight
+        if (canvas.width !== w * ratio || canvas.height !== h * ratio) {
+          const data = sigRef.current.toData() // Salva o rabisco atual
+          canvas.width = w * ratio
+          canvas.height = h * ratio
+          canvas.getContext('2d').scale(ratio, ratio)
+          sigRef.current.clear()
+          sigRef.current.fromData(data) // Restaura o rabisco
+        }
+      }
+    }
+    if (cadastro && !cadastro.lgpd_concluido) {
+      setTimeout(resizeCanvas, 50)
+      window.addEventListener('resize', resizeCanvas)
+      return () => window.removeEventListener('resize', resizeCanvas)
+    }
+  }, [cadastro])
 
   const assinar = async (e) => {
     e.preventDefault()
@@ -98,11 +124,11 @@ export default function AssinarCadastro() {
 
         <div style={{ marginBottom: 8 }}>
           <span className="form-label" style={{ fontSize: 14 }}>Assinatura do titular <span style={{ color: '#c0392b' }}>*</span></span>
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, background: '#fff', touchAction: 'none' }}>
+          <div ref={containerRef} style={{ border: '1px solid var(--border)', borderRadius: 8, background: '#fff', touchAction: 'none', height: 260, width: '100%' }}>
             <SignatureCanvas
               ref={sigRef}
               penColor="#111"
-              canvasProps={{ width: 720, height: 260, style: { width: '100%', height: 260, display: 'block' } }}
+              canvasProps={{ style: { width: '100%', height: '100%', display: 'block' } }}
             />
           </div>
           <button type="button" className="btn-secondary" style={{ marginTop: 10 }} onClick={() => sigRef.current?.clear()}>

@@ -63,7 +63,7 @@ export default function Login() {
   }
 
   return (
-    <div className="auth-page" style={{ background: '#eef6f0', position: 'relative', overflow: 'hidden' }}>
+    <div className="auth-page auth-page--decorated">
       <style>{`@keyframes orbitBlob{0%{transform:translate(0px,0px) scale(1)}12.5%{transform:translate(-80vw,0) scale(1.03)}25%{transform:translate(-80vw,60vh) scale(1)}37.5%{transform:translate(0,60vh) scale(0.98)}50%{transform:translate(80vw,60vh) scale(1.02)}62.5%{transform:translate(80vw,0) scale(1)}75%{transform:translate(0,-10vh) scale(1.01)}87.5%{transform:translate(-40vw,-10vh) scale(0.99)}100%{transform:translate(0px,0px) scale(1)} }
         @keyframes fadeInUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
         .auth-welcome{animation:fadeInUp 560ms ease both}
@@ -92,7 +92,7 @@ export default function Login() {
         </svg>
       </div>
       <div className="auth-welcome" style={{ marginBottom: 20, padding: '18px 0', maxWidth: 560 }}>
-        <h1 style={{ margin: 0, fontSize: 28 }}>Bem-vindo ao Sistema de Gestão da ASAP</h1>
+        <h1 style={{ margin: 0, fontSize: 28, color: 'var(--text-main)' }}>Bem-vindo ao Sistema de Gestão da ASAP</h1>
         <p style={{ marginTop: 6, color: 'var(--text-soft)', marginBottom: 6 }}>Acesse sua conta para gerenciar cadastros, assinaturas e relatórios.</p>
         <div style={{ height: 6, width: 140, borderRadius: 6, background: 'linear-gradient(90deg,#3ab789,#1f8a65)' }} aria-hidden />
       </div>
