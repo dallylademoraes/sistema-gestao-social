@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import api from '../services/api'
 
 const FaqItem = ({ pergunta, children }) => {
   const [aberto, setAberto] = useState(false)
@@ -31,6 +32,17 @@ const FaqItem = ({ pergunta, children }) => {
 
 export default function FAQ() {
   const navigate = useNavigate()
+  
+  const [perfilUsuario, setPerfilUsuario] = useState('')
+
+  useEffect(() => {
+    // Busca os dados do usuário logado na API para liberar a documentação
+    api.get('/auth/me')
+      .then((response) => {
+        setPerfilUsuario(response.data.perfil || '')
+      })
+      .catch((error) => console.error("Erro ao buscar perfil do usuário", error))
+  }, [])
 
   return (
     <div className="centered-form-shell" style={{ maxWidth: 800, margin: '0 auto' }}>
@@ -46,7 +58,7 @@ export default function FAQ() {
           Assista ao nosso vídeo de treinamento para aprender a usar o sistema completo, desde a criação de cadastros até a exportação de relatórios.
         </p>
         <a 
-          href="LINK_DO_DRIVE_AQUI" 
+        href="https://drive.google.com/file/d/1cNAlGMv04ntFFxDs2rPxi9fOanMfiSsH/view?usp=sharing" 
           target="_blank" 
           rel="noreferrer" 
           className="btn-primary" 
@@ -55,6 +67,25 @@ export default function FAQ() {
           Assistir Tutorial no Drive
         </a>
       </div>
+
+      {/* Seção da Documentação Técnica (Restrito para TI) */}
+      {perfilUsuario.toLowerCase() === 'ti' && (
+        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '1.5rem', marginBottom: '1.5rem' }}>
+          <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 0, marginBottom: 8 }}>Documentação Técnica (Acesso Restrito)</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 16 }}>
+            Visão exclusiva para o perfil de TI. Contém informações detalhadas sobre a infraestrutura (Render, Neon.tech), variáveis de ambiente e arquitetura do sistema.
+          </p>
+          <a 
+            href="https://drive.google.com/file/d/1prDcROxPmgjtVRW_bsV3xWvfcbFcAlvg/view?usp=sharing" 
+            target="_blank" 
+            rel="noreferrer" 
+            className="btn-primary" 
+            style={{ display: 'inline-flex', textDecoration: 'none', backgroundColor: '#3b82f6', borderColor: '#3b82f6' }}
+          >
+            Acessar Documentação Técnica
+          </a>
+        </div>
+      )}
 
       {/* Seção de Perguntas Frequentes */}
       <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '1.5rem' }}>

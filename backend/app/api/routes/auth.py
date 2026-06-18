@@ -207,27 +207,38 @@ def logout(response: Response):
 
 
 @router.post("/usuarios", response_model=UsuarioOut, status_code=201)
-def criar_usuario(body: UsuarioCreate, request: Request, db: Session = Depends(get_db),
-                  atual: Usuario = Depends(usuario_atual)):
+def criar_usuario(body: UsuarioCreate, request: Request, db: Session = Depends(get_db), atual: Usuario = Depends(usuario_atual)):
     _garantir_coordenadora(atual)
+    
+    # 1. Verifica no banco se já existe
+    if db.query(Usuario).filter(Usuario.email == body.email).first():
+        raise HTTPException(status_code=400, detail="E-mail já cadastrado no banco")
+        
+    # 2. Verifica na planilha (se ativada)
+    if _usuarios_em_planilha() and buscar_usuario_sheets(email=body.email):
+        raise HTTPException(status_code=400, detail="E-mail já cadastrado na planilha")
+
+    # 3. Sempre salva no banco de dados primeiro
+    u = Usuario(
+        nome=body.nome, 
+        email=body.email,
+        senha_hash=hash_senha(body.senha), 
+        perfil=body.perfil
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    
+    # 4. Salva na planilha como complemento
     if _usuarios_em_planilha():
-        if buscar_usuario_sheets(email=body.email):
-            raise HTTPException(status_code=400, detail="E-mail já cadastrado")
-        u = criar_usuario_sheets({
+        criar_usuario_sheets({
             "nome": body.nome,
             "email": body.email,
             "senha_hash": hash_senha(body.senha),
             "perfil": body.perfil,
             "ativo": True,
         })
-    elif db.query(Usuario).filter(Usuario.email == body.email).first():
-        raise HTTPException(status_code=400, detail="E-mail já cadastrado")
-    else:
-        u = Usuario(nome=body.nome, email=body.email,
-                    senha_hash=hash_senha(body.senha), perfil=body.perfil)
-        db.add(u)
-        db.commit()
-        db.refresh(u)
+
     registrar_auditoria(
         db,
         action="user.create",
@@ -264,62 +275,29 @@ def atualizar_usuario(
         dados["senha_hash"] = hash_senha(senha_plana)
 
     if not dados:
-        if _usuarios_em_planilha():
-            alvo_planilha = buscar_usuario_sheets(usuario_id=usuario_id)
-            if not alvo_planilha:
-                raise HTTPException(status_code=404, detail="Usuário não encontrado")
-            return alvo_planilha
         alvo_db = db.query(Usuario).filter(Usuario.id == usuario_id).first()
         if not alvo_db:
             raise HTTPException(status_code=404, detail="Usuário não encontrado")
         return alvo_db
 
-    if _usuarios_em_planilha():
-        alvo = buscar_usuario_sheets(usuario_id=usuario_id)
-        if not alvo:
-            raise HTTPException(status_code=404, detail="Usuário não encontrado")
-        if "email" in dados and dados["email"] != alvo.email:
-            if buscar_usuario_sheets(email=dados["email"]):
-                raise HTTPException(status_code=400, detail="E-mail já cadastrado")
-        perfil_novo = dados.get("perfil", alvo.perfil)
-        ativo_novo = dados.get("ativo", alvo.ativo)
-        era_coordenadora_ativa = alvo.perfil == "coordenadora" and alvo.ativo
-        continuara_coordenadora_ativa = perfil_novo == "coordenadora" and ativo_novo
-
-        if alvo.id == atual.id:
-            if "ativo" in dados and dados["ativo"] is False:
-                raise HTTPException(status_code=400, detail="Não é permitido desativar seu próprio usuário")
-            if "perfil" in dados and dados["perfil"] != atual.perfil:
-                raise HTTPException(status_code=400, detail="Não é permitido alterar seu próprio perfil")
-
-        if era_coordenadora_ativa and not continuara_coordenadora_ativa and contar_coordenadoras_ativas_sheets() <= 1:
-            raise HTTPException(status_code=400, detail="Não é permitido remover a última coordenadora ativa")
-
-        atualizado = atualizar_usuario_sheets(usuario_id, dados)
-        registrar_auditoria(
-            db,
-            action="user.update",
-            entity_type="usuario",
-            entity_id=usuario_id,
-            details=f"campos={','.join(sorted(dados.keys()))}",
-            actor=atual,
-            ip_address=request.client.host if request.client else None,
-        )
-        return atualizado
-
+    # Busca obrigatoriamente no banco primeiro
     alvo = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not alvo:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        raise HTTPException(status_code=404, detail="Usuário não encontrado no banco de dados")
 
+    # Verifica duplicidade de email
     if "email" in dados and dados["email"] != alvo.email:
         if db.query(Usuario).filter(and_(Usuario.email == dados["email"], Usuario.id != alvo.id)).first():
-            raise HTTPException(status_code=400, detail="E-mail já cadastrado")
+            raise HTTPException(status_code=400, detail="E-mail já cadastrado no banco")
+        if _usuarios_em_planilha() and buscar_usuario_sheets(email=dados["email"]):
+            raise HTTPException(status_code=400, detail="E-mail já cadastrado na planilha")
 
     perfil_novo = dados.get("perfil", alvo.perfil)
     ativo_novo = dados.get("ativo", alvo.ativo)
     era_coordenadora_ativa = alvo.perfil == "coordenadora" and alvo.ativo
     continuara_coordenadora_ativa = perfil_novo == "coordenadora" and ativo_novo
 
+    # Regras de negócio usando os dados do banco
     if alvo.id == atual.id:
         if "ativo" in dados and dados["ativo"] is False:
             raise HTTPException(status_code=400, detail="Não é permitido desativar seu próprio usuário")
@@ -329,11 +307,19 @@ def atualizar_usuario(
     if era_coordenadora_ativa and not continuara_coordenadora_ativa and _contar_coordenadoras_ativas(db) <= 1:
         raise HTTPException(status_code=400, detail="Não é permitido remover a última coordenadora ativa")
 
+    # Aplica as atualizações no banco (incluindo a nova senha)
     for campo, valor in dados.items():
         setattr(alvo, campo, valor)
 
     db.commit()
     db.refresh(alvo)
+
+    # Aplica as mesmas atualizações na planilha
+    if _usuarios_em_planilha():
+        alvo_planilha = buscar_usuario_sheets(usuario_id=usuario_id)
+        if alvo_planilha:
+            atualizar_usuario_sheets(usuario_id, dados)
+
     registrar_auditoria(
         db,
         action="user.update",
@@ -355,39 +341,28 @@ def excluir_usuario(
 ):
     _garantir_coordenadora(atual)
 
-    if _usuarios_em_planilha():
-        alvo = buscar_usuario_sheets(usuario_id=usuario_id)
-        if not alvo:
-            raise HTTPException(status_code=404, detail="Usuário não encontrado")
-        if alvo.id == atual.id:
-            raise HTTPException(status_code=400, detail="Não é permitido excluir seu próprio usuário")
-        if alvo.perfil == "coordenadora" and contar_coordenadoras_ativas_sheets() <= 1:
-            raise HTTPException(status_code=400, detail="Não é permitido remover a última coordenadora ativa")
-        
-        from app.services.sheets_usuarios import excluir_usuario_sheets
-        excluir_usuario_sheets(usuario_id)
-        
-        registrar_auditoria(
-            db,
-            action="user.delete",
-            entity_type="usuario",
-            entity_id=usuario_id,
-            details=f"email={alvo.email}",
-            actor=atual,
-            ip_address=request.client.host if request.client else None,
-        )
-        return {"message": "ok"}
-
+    # Verifica no banco de dados primeiro
     alvo = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not alvo:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        
     if alvo.id == atual.id:
         raise HTTPException(status_code=400, detail="Não é permitido excluir seu próprio usuário")
+        
     if alvo.perfil == "coordenadora" and _contar_coordenadoras_ativas(db) <= 1:
         raise HTTPException(status_code=400, detail="Não é permitido remover a última coordenadora ativa")
 
+    # Exclui no banco de dados
     db.delete(alvo)
     db.commit()
+
+    # Exclui na planilha
+    if _usuarios_em_planilha():
+        alvo_planilha = buscar_usuario_sheets(usuario_id=usuario_id)
+        if alvo_planilha:
+            from app.services.sheets_usuarios import excluir_usuario_sheets
+            excluir_usuario_sheets(usuario_id)
+
     registrar_auditoria(
         db,
         action="user.delete",
