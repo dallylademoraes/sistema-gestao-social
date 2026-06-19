@@ -11,13 +11,10 @@ def enviar_email_conta_criada(
     nome_pessoa: str,
     email_login: str,
     senha_temporaria: str,
-):
-    print(f"[DEBUG] Tentando enviar email para {destinatario}")
-    print(f"[DEBUG] BREVO_API_KEY configurada: {bool(settings.BREVO_API_KEY)}")
-
+) -> bool:
     if not settings.BREVO_API_KEY:
         logger.error("BREVO_API_KEY não configurada.")
-        return
+        return False
 
     try:
         payload = json.dumps({
@@ -52,6 +49,8 @@ def enviar_email_conta_criada(
 
         with request.urlopen(req, timeout=15) as resp:
             logger.info(f"E-mail enviado para {destinatario}: {resp.status}")
+            return True
 
     except Exception as e:
         logger.error(f"Falha ao enviar e-mail para {destinatario}: {e}")
+        return False

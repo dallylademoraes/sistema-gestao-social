@@ -275,30 +275,31 @@ def logout(response: Response):
 @router.post("/usuarios", response_model=UsuarioOut, status_code=201)
 def criar_usuario(body: UsuarioCreate, request: Request, db: Session = Depends(get_db), atual: Usuario = Depends(usuario_atual)):
     _garantir_coordenadora(atual)
-    
+
     # 1. Verifica no banco se já existe
     if db.query(Usuario).filter(Usuario.email == body.email).first():
         raise HTTPException(status_code=400, detail="E-mail já cadastrado no banco")
-        
+
     # 2. Verifica na planilha (se ativada)
     if _usuarios_em_planilha() and buscar_usuario_sheets(email=body.email):
         raise HTTPException(status_code=400, detail="E-mail já cadastrado na planilha")
 
     # 3. Sempre salva no banco de dados primeiro
     u = Usuario(
-        nome=body.nome, 
+        nome=body.nome,
         email=body.email,
-        senha_hash=hash_senha(body.senha), 
+        senha_hash=hash_senha(body.senha),
         perfil=body.perfil
     )
     db.add(u)
     db.commit()
     db.refresh(u)
 
-    # 4. Envia e-mail de boas-vindas
+    # 4. Envia e-mail de boas-vindas — falha aqui não derruba a criação do usuário,
+    # mas registramos o resultado na auditoria para não perder o rastro do problema.
     from app.services.email_sender import enviar_email_conta_criada
 
-    enviar_email_conta_criada(
+    email_enviado = enviar_email_conta_criada(
         destinatario=u.email,
         nome_pessoa=u.nome,
         email_login=u.email,
@@ -328,10 +329,16 @@ def criar_usuario(body: UsuarioCreate, request: Request, db: Session = Depends(g
         action="user.create",
         entity_type="usuario",
         entity_id=u.id,
-        details=f"perfil={u.perfil};email={u.email}",
+        details=f"perfil={u.perfil};email={u.email};email_enviado={email_enviado}",
         actor=atual,
         ip_address=request.client.host if request.client else None,
     )
+
+    if not email_enviado:
+        # Usuário já foi criado com sucesso (201). Isso é só um aviso lateral —
+        # o frontend pode usar esse header pra mostrar "copie a senha temporária".
+        request.state.email_falhou = True
+
     return u
 
 
