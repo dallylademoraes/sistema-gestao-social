@@ -21,9 +21,10 @@ USER_FIELDS = [
     "ativo",
     "criado_em",
     "atualizado_em",
+    "precisa_trocar_senha",
 ]
 
-BOOL_FIELDS = {"ativo"}
+BOOL_FIELDS = {"ativo", "precisa_trocar_senha"}
 DATETIME_FIELDS = {"criado_em", "atualizado_em"}
 LIST_CACHE_TTL_SECONDS = 30
 
@@ -44,6 +45,7 @@ class UsuarioSheets:
     ativo: bool = True
     criado_em: datetime | None = None
     atualizado_em: datetime | None = None
+    precisa_trocar_senha: bool = False
 
 
 def usuarios_sheets_enabled() -> bool:

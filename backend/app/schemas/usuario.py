@@ -17,6 +17,7 @@ class UsuarioOut(BaseModel):
     perfil: str
     ativo: bool
     criado_em: datetime
+    precisa_trocar_senha: bool
 
     model_config = {"from_attributes": True}
 
@@ -53,6 +54,7 @@ class AuditLogPage(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    precisa_trocar_senha: bool
 
 
 class TokenData(BaseModel):
@@ -65,6 +67,10 @@ class PasswordForgotRequest(BaseModel):
 
 class PasswordResetConfirm(BaseModel):
     token: str
+    nova_senha: str
+
+class TrocaSenhaSchema(BaseModel):
+    senha_atual: str
     nova_senha: str
 
 

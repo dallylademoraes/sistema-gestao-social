@@ -14,6 +14,7 @@ import AssinarCadastro from './pages/AssinarCadastro'
 import Usuarios from './pages/Usuarios'
 import EsqueciSenha from './pages/EsqueciSenha'
 import RedefinirSenha from './pages/RedefinirSenha'
+import TrocarSenha from './pages/TrocarSenha'
 import FAQ from './pages/FAQ'
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
                 <Route path="/cadastros" element={<ListaCadastros />} />
                 <Route path="/cadastros/novo" element={<NovoCadastro />} />
                 <Route path="/assinaturas-pendentes" element={<AssinaturasPendentes />} />
+                <Route path="/trocar-senha" element={<TrocarSenha />} />
                 <Route path="/cadastros/:id/assinar" element={<AssinarCadastro />} />
                 <Route path="/cadastros/:id/editar" element={<EditarCadastro />} />
                 <Route path="/cadastros/:id" element={<DetalheCadastro />} />

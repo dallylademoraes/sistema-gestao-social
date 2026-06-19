@@ -46,6 +46,7 @@ const SHEETS = {
       'ativo',
       'criado_em',
       'atualizado_em',
+      'precisa_trocar_senha',
     ],
   },
 };

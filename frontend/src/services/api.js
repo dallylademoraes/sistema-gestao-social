@@ -2,7 +2,7 @@ import axios from 'axios'
 
 // Send credentials (cookies) with requests so server-set HttpOnly cookie is included
 const API_ORIGIN = import.meta.env.VITE_API_URL ?? ''
-const api = axios.create({ baseURL: `${API_ORIGIN}/api`, withCredentials: true })
+const api = axios.create({ baseURL: `${API_ORIGIN}/api`, withCredentials: true, timeout: 20000 })
 
 const cadastrosListCache = new Map()
 const CADASTROS_CACHE_MS = 5 * 60 * 1000
@@ -109,6 +109,7 @@ export const auth = {
   exportarAuditoria: (params) => api.get('/auth/auditoria/export', { params, responseType: 'blob' }),
   forgotPassword: (email) => api.post('/auth/password/forgot', { email }),
   resetPassword: (token, novaSenha) => api.post('/auth/password/reset', { token, nova_senha: novaSenha }),
+  changePassword: (senhaAtual, novaSenha) => api.put('/auth/password/change', { senha_atual: senhaAtual, nova_senha: novaSenha }),
   logout: () => api.post('/auth/logout'),
 }
 

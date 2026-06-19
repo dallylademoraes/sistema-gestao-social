@@ -1,14 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
+
+# Configura o logging para exibir mensagens de nível INFO ou superior
+logging.basicConfig(level=logging.INFO)
 
 
 from app.core.config import settings
 from app.api.routes import auth, cadastros
 from app.models import usuario, cadastro, audit_log, cadastro_lgpd, consentimento_lgpd, login_throttle  # noqa: garante que os models são registrados
+from app.db.session import Base, engine
 from app.services.sheets_cadastros import aquecer_cache_sheets
-
-# Nota: Este projeto usa Google Planilhas como armazenamento principal.
-# A criação automática de schemas de bancos relacionais foi removida.
 
 app = FastAPI(
     title="ASAP — Sistema de Gestão",
@@ -30,6 +32,7 @@ app.include_router(cadastros.router, prefix="/api")
 
 @app.on_event("startup")
 def startup() -> None:
+    Base.metadata.create_all(bind=engine)
     aquecer_cache_sheets()
 
 

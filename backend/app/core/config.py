@@ -25,8 +25,15 @@ class Settings(BaseSettings):
     GOOGLE_APPS_SCRIPT_TOKEN: str | None = None
     S3_BUCKET_NAME: str | None = None
     S3_REGION: str | None = None
+    S3_VERIFY_SSL: bool = True
+    B2_APPLICATION_KEY_ID: str | None = None
+    B2_APPLICATION_KEY: str | None = None
     BLOB_CONNECTION_STRING: str | None = None
     BLOB_CONTAINER_NAME: str | None = None
+    BREVO_SMTP_LOGIN: str | None = None
+    BREVO_SMTP_KEY: str | None = None
+    BREVO_FROM_EMAIL: str | None = None
+    BREVO_FROM_NAME: str | None = None
     RETURN_PASSWORD_RESET_TOKEN_IN_RESPONSE: bool = True
 
     class Config:

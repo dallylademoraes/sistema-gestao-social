@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate, NavLink, Outlet } from 'react-router-dom'
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
 import logoAsap from '../assets/ASAP_icon_hd.png'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../hooks/useTheme'
@@ -18,12 +18,16 @@ const linkStyle = (ativo) => ({
 export default function Layout() {
   const { usuario, logout, carregando } = useAuth()
   const { isDark, toggleTheme } = useTheme()
+  const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const podeCriarOuEditarCadastro = ['coordenadora', 'assistente'].includes(usuario?.perfil)
   const podeGerenciarUsuarios = usuario?.perfil === 'coordenadora'
 
   if (carregando) return null
   if (!usuario) return <Navigate to="/login" />
+  if (usuario.precisa_trocar_senha && location.pathname !== '/trocar-senha') {
+    return <Navigate to="/trocar-senha" replace />
+  }
 
   const closeSidebar = () => setSidebarOpen(false)
 

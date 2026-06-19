@@ -44,8 +44,8 @@ export default function Login() {
     setSegundosBloqueio(0)
     setCarregando(true)
     try {
-      await login(email, senha)
-      navigate('/')
+      const resultado = await login(email, senha)
+      navigate(resultado?.precisa_trocar_senha ? '/trocar-senha' : '/')
     } catch (err) {
       if (err.response?.status === 429) {
         setBloqueado(true)
@@ -54,8 +54,12 @@ export default function Login() {
         setErro(err.response?.data?.detail || 'Muitas tentativas. Tente novamente mais tarde.')
       } else if (err.response?.status === 401) {
         setErro('E-mail ou senha incorretos.')
+      } else if (err.code === 'ECONNABORTED') {
+        setErro('O servidor demorou para responder. Reinicie o backend e tente novamente.')
+      } else if (!err.response) {
+        setErro('Não foi possível conectar ao servidor. Verifique se o backend está ligado.')
       } else {
-        setErro('Não foi possível entrar agora.')
+        setErro(err.response?.data?.detail || 'Não foi possível entrar agora.')
       }
     } finally {
       setCarregando(false)

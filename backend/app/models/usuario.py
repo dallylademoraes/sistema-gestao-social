@@ -11,5 +11,7 @@ class Usuario(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     senha_hash = Column(String, nullable=False)
     perfil = Column(String, nullable=False, default="assistente")  # coordenadora | assistente | ti
+    precisa_trocar_senha = Column(Boolean, default=True, nullable=False)
     ativo = Column(Boolean, default=True)
     criado_em = Column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
