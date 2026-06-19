@@ -32,9 +32,10 @@ class Settings(BaseSettings):
     BLOB_CONTAINER_NAME: str | None = None
     BREVO_SMTP_LOGIN: str | None = None
     BREVO_SMTP_KEY: str | None = None
+    BREVO_API_KEY: str | None = None     
     BREVO_FROM_EMAIL: str | None = None
     BREVO_FROM_NAME: str | None = None
-    RETURN_PASSWORD_RESET_TOKEN_IN_RESPONSE: bool = True
+    RETURN_PASSWORD_RESET_TOKEN_IN_RESPONSE: bool = False
 
     class Config:
         env_file = ".env"
