@@ -168,7 +168,6 @@ def salvar_arquivo_externo(storage_ref: str, conteúdo: bytes, content_type: str
 
 
 def excluir_arquivo_externo(storage_ref: str) -> None:
-    """Exclui um arquivo do provedor de armazenamento configurado."""
     if not storage_ref:
         return
 
@@ -176,13 +175,37 @@ def excluir_arquivo_externo(storage_ref: str) -> None:
     if provider == "s3":
         bucket = getattr(settings, "S3_BUCKET_NAME", None)
         if not bucket:
-            raise HTTPException(status_code=500, detail="S3_BUCKET_NAME ausente")
-        client = _s3_client()
-        client.delete_object(Bucket=bucket, Key=storage_ref)
-    elif provider == "blob":
-        # A lógica para Azure Blob Storage seria adicionada aqui se necessário
-        pass
-    else:  # local
+            return
+        try:
+            client = _s3_client()
+
+            objetos_para_apagar = []
+            kwargs = {"Bucket": bucket, "Prefix": storage_ref}
+
+            while True:
+                resp = client.list_object_versions(**kwargs)
+
+                for v in resp.get("Versions", []) + resp.get("DeleteMarkers", []):
+                    if v["Key"] == storage_ref:
+                        objetos_para_apagar.append({
+                            "Key": v["Key"],
+                            "VersionId": v["VersionId"],
+                        })
+
+                if resp.get("IsTruncated"):
+                    kwargs["KeyMarker"] = resp.get("NextKeyMarker")
+                    kwargs["VersionIdMarker"] = resp.get("NextVersionIdMarker")
+                else:
+                    break
+
+            if objetos_para_apagar:
+                client.delete_objects(
+                    Bucket=bucket,
+                    Delete={"Objects": objetos_para_apagar, "Quiet": True},
+                )
+        except Exception:
+            logger.exception("Falha ao excluir arquivo '%s' do B2.", storage_ref)
+    else:
         caminho = BASE_UPLOAD_DIR / storage_ref
         if caminho.is_file():
             caminho.unlink()
