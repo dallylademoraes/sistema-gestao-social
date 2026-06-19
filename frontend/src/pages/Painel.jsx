@@ -6,15 +6,15 @@ import DonutChart from '../components/charts/DonutChart'
 import { cadastros as api, normalizarLista } from '../services/api'
 import { baixarBlob, baixarGraficoPng } from '../utils/exportCsv'
 import {
-    cadastrosPorMes,
-    corRacaDistribuicao,
-    encaminhamentoDistribuicao,
-    faixaEtariaDistribuicao,
-    identidadeGeneroDistribuicao,
-    pcdDistribuicao,
-    rendaDistribuicao,
-    statusDistribuicao,
-    topCidades,
+  cadastrosPorMes,
+  corRacaDistribuicao,
+  encaminhamentoDistribuicao,
+  faixaEtariaDistribuicao,
+  identidadeGeneroDistribuicao,
+  pcdDistribuicao,
+  rendaDistribuicao,
+  statusDistribuicao,
+  topCidades,
 } from '../utils/painelStats'
 
 function Metrica({ label, valor, cor }) {
@@ -102,9 +102,12 @@ export default function Painel() {
 
   const exportarCadastros = async () => {
     setExportando('cadastros')
+    setErro('')
     try {
       const blob = await api.exportarCadastrosXlsx()
       baixarBlob(blob, 'cadastros_asap.xlsx')
+    } catch (err) {
+      setErro('Não foi possível exportar os cadastros. Verifique o servidor.')
     } finally {
       setExportando('')
     }
@@ -112,9 +115,12 @@ export default function Painel() {
 
   const exportarResumoGraficos = async () => {
     setExportando('graficos')
+    setErro('')
     try {
-      const blob = await api.exportarGraficosXlsx()
-      baixarBlob(blob, 'resumo_graficos_asap.xlsx')
+      const blob = await api.exportarGraficosCsv()
+      baixarBlob(blob, 'resumo_graficos_asap.csv')
+    } catch (err) {
+      setErro('Não foi possível exportar os gráficos. Verifique o servidor.')
     } finally {
       setExportando('')
     }

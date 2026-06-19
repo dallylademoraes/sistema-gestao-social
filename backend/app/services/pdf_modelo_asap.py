@@ -379,7 +379,7 @@ def _preencher_lgpd_assinatura(
         fontsize=14,
         fontname="helv",
     )   
-    
+
 def try_preencher_modelo_asap_pdf(
     modelo_path: Path,
     tipo: str,

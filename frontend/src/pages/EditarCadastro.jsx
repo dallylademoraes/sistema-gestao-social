@@ -162,7 +162,7 @@ export default function EditarCadastro() {
 
           <Secao titulo="Contato e endereço" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1.5rem' }}>
-            <Input label="E-mail" name="email" type="email" value={form.email} onChange={update('email')} />
+            <Input label="E-mail" name="email" type="email" value={form.email} onChange={update('email')} pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Insira um e-mail válido (ex: nome@dominio.com)" />
             <Input label="Telefone" name="telefone" required placeholder="(63) 90000-0000" value={form.telefone} onChange={update('telefone')} />
             <div style={{ gridColumn: '1 / -1' }}><Input label="Endereço" name="endereco" placeholder="Rua, número, bairro" value={form.endereco} onChange={update('endereco')} /></div>
             <Input label="Cidade" name="cidade" value={form.cidade} onChange={update('cidade')} />

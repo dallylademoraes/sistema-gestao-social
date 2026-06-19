@@ -20,7 +20,14 @@ export function AuthProvider({ children }) {
   }, [])
 
   const login = async (email, senha) => {
-    await auth.login(email, senha)
+    const loginResponse = await auth.login(email, senha)
+    const me = await auth.me()
+    setUsuario(me.data)
+    return loginResponse.data
+  }
+
+  const trocarSenha = async (senhaAtual, novaSenha) => {
+    await auth.changePassword(senhaAtual, novaSenha)
     const me = await auth.me()
     setUsuario(me.data)
   }
@@ -32,7 +39,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ usuario, login, logout, carregando }}>
+    <AuthContext.Provider value={{ usuario, login, trocarSenha, logout, carregando }}>
       {children}
     </AuthContext.Provider>
   )

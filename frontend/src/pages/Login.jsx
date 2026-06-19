@@ -44,8 +44,8 @@ export default function Login() {
     setSegundosBloqueio(0)
     setCarregando(true)
     try {
-      await login(email, senha)
-      navigate('/')
+      const resultado = await login(email, senha)
+      navigate(resultado?.precisa_trocar_senha ? '/trocar-senha' : '/')
     } catch (err) {
       if (err.response?.status === 429) {
         setBloqueado(true)
@@ -54,8 +54,12 @@ export default function Login() {
         setErro(err.response?.data?.detail || 'Muitas tentativas. Tente novamente mais tarde.')
       } else if (err.response?.status === 401) {
         setErro('E-mail ou senha incorretos.')
+      } else if (err.code === 'ECONNABORTED') {
+        setErro('O servidor demorou para responder. Reinicie o backend e tente novamente.')
+      } else if (!err.response) {
+        setErro('Não foi possível conectar ao servidor. Verifique se o backend está ligado.')
       } else {
-        setErro('Não foi possível entrar agora.')
+        setErro(err.response?.data?.detail || 'Não foi possível entrar agora.')
       }
     } finally {
       setCarregando(false)
@@ -63,7 +67,7 @@ export default function Login() {
   }
 
   return (
-    <div className="auth-page" style={{ background: '#eef6f0', position: 'relative', overflow: 'hidden' }}>
+    <div className="auth-page auth-page--decorated">
       <style>{`@keyframes orbitBlob{0%{transform:translate(0px,0px) scale(1)}12.5%{transform:translate(-80vw,0) scale(1.03)}25%{transform:translate(-80vw,60vh) scale(1)}37.5%{transform:translate(0,60vh) scale(0.98)}50%{transform:translate(80vw,60vh) scale(1.02)}62.5%{transform:translate(80vw,0) scale(1)}75%{transform:translate(0,-10vh) scale(1.01)}87.5%{transform:translate(-40vw,-10vh) scale(0.99)}100%{transform:translate(0px,0px) scale(1)} }
         @keyframes fadeInUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
         .auth-welcome{animation:fadeInUp 560ms ease both}
@@ -92,7 +96,7 @@ export default function Login() {
         </svg>
       </div>
       <div className="auth-welcome" style={{ marginBottom: 20, padding: '18px 0', maxWidth: 560 }}>
-        <h1 style={{ margin: 0, fontSize: 28 }}>Bem-vindo ao Sistema de Gestão da ASAP</h1>
+        <h1 style={{ margin: 0, fontSize: 28, color: 'var(--text-main)' }}>Bem-vindo ao Sistema de Gestão da ASAP</h1>
         <p style={{ marginTop: 6, color: 'var(--text-soft)', marginBottom: 6 }}>Acesse sua conta para gerenciar cadastros, assinaturas e relatórios.</p>
         <div style={{ height: 6, width: 140, borderRadius: 6, background: 'linear-gradient(90deg,#3ab789,#1f8a65)' }} aria-hidden />
       </div>

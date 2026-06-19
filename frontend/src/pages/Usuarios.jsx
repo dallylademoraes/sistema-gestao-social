@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { auth } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
+import { auth } from '../services/api'
 
 export default function Usuarios() {
   const { usuario } = useAuth()
@@ -128,8 +128,13 @@ export default function Usuarios() {
   }
 
   const salvarLinha = async (id) => {
-    const dados = edicao[id]
-    if (!dados) return
+    const originalDados = edicao[id]
+    if (!originalDados) return
+    const dados = { ...originalDados }
+    if (!dados.nova_senha) {
+      delete dados.nova_senha
+    }
+    
     setErro('')
     setOk('')
     setSalvandoLinhaId(id)
@@ -142,6 +147,22 @@ export default function Usuarios() {
       setErro(err.response?.data?.detail || 'Erro ao atualizar usuário.')
     } finally {
       setSalvandoLinhaId(null)
+    }
+  }
+
+  const handleExcluirUsuario = async (u) => {
+    if (!window.confirm(`ATENÇÃO: Deseja EXCLUIR PERMANENTEMENTE o usuário "${u.nome}"? Esta ação não pode ser desfeita.`)) {
+      return
+    }
+    setErro('')
+    setOk('')
+    try {
+      await auth.excluirUsuario(u.id)
+      setOk('Usuário excluído permanentemente.')
+      await carregar()
+      await carregarAuditoria(0)
+    } catch (err) {
+      setErro(err.response?.data?.detail || 'Erro ao excluir usuário.')
     }
   }
 
@@ -229,6 +250,7 @@ export default function Usuarios() {
                   <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid var(--border)' }}>Nome</th>
                   <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid var(--border)' }}>E-mail</th>
                   <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid var(--border)' }}>Perfil</th>
+                  <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid var(--border)' }}>Nova Senha</th>
                   <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid var(--border)' }}>Ativo</th>
                   <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid var(--border)' }}>Ação</th>
                 </tr>
@@ -251,14 +273,26 @@ export default function Usuarios() {
                         type="email"
                         value={edicao[u.id]?.email || ''}
                         onChange={updateEdicao(u.id, 'email')}
+                        pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
+                        title="Insira um e-mail válido (ex: nome@dominio.com)"
                       />
                     </td>
                     <td style={{ padding: '10px' }}>
-                      <select className="form-select" value={edicao[u.id]?.perfil || 'assistente'} onChange={updateEdicao(u.id, 'perfil')}>
+                      <select className="form-select" style={{ minWidth: 130 }} value={edicao[u.id]?.perfil || 'assistente'} onChange={updateEdicao(u.id, 'perfil')}>
                         <option value="assistente">assistente</option>
                         <option value="ti">ti</option>
                         <option value="coordenadora">coordenadora</option>
                       </select>
+                    </td>
+                    <td style={{ padding: '10px' }}>
+                      <input
+                        className="form-input"
+                        style={{ minWidth: 120 }}
+                        type="password"
+                        placeholder="Em branco = manter"
+                        value={edicao[u.id]?.nova_senha || ''}
+                        onChange={updateEdicao(u.id, 'nova_senha')}
+                      />
                     </td>
                     <td style={{ padding: '10px' }}>
                       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
@@ -266,10 +300,19 @@ export default function Usuarios() {
                         {edicao[u.id]?.ativo ? 'Ativo' : 'Inativo'}
                       </label>
                     </td>
-                    <td style={{ padding: '10px' }}>
+                    <td style={{ padding: '10px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <button className="btn-secondary" onClick={() => salvarLinha(u.id)} disabled={salvandoLinhaId === u.id}>
                         {salvandoLinhaId === u.id ? 'Salvando...' : 'Salvar'}
                       </button>
+                      {!edicao[u.id]?.ativo && (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                          onClick={() => handleExcluirUsuario(u)}>
+                          Excluir
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

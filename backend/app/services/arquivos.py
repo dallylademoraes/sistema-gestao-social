@@ -106,10 +106,28 @@ def salvar_arquivo_local(storage_ref: str, conteúdo: bytes) -> str:
 
 def _s3_client():
     try:
-        import boto3  # type: ignore
+        import boto3
+        from botocore.config import Config
     except ImportError as exc:
-        raise HTTPException(status_code=500, detail="boto3 não está instalado para STORAGE_PROVIDER=s3") from exc
-    return boto3.client("s3", region_name=getattr(settings, "S3_REGION", None) or None)
+        raise HTTPException(status_code=500, detail="boto3 não está instalado") from exc
+
+    endpoint = (getattr(settings, "S3_ENDPOINT_URL", None) or "").strip().rstrip("/")
+    verify_ssl = bool(getattr(settings, "S3_VERIFY_SSL", True))
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint or None,
+        region_name=getattr(settings, "S3_REGION", None) or None,
+        aws_access_key_id=getattr(settings, "B2_APPLICATION_KEY_ID", None),
+        aws_secret_access_key=getattr(settings, "B2_APPLICATION_KEY", None),
+        verify=verify_ssl,
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+            retries={"max_attempts": 3, "mode": "standard"},
+            connect_timeout=10,
+            read_timeout=60,
+        ),
+    )
 
 
 def _blob_service_client():
@@ -130,7 +148,13 @@ def salvar_arquivo_externo(storage_ref: str, conteúdo: bytes, content_type: str
         if not bucket:
             raise HTTPException(status_code=500, detail="S3_BUCKET_NAME ausente")
         client = _s3_client()
-        client.put_object(Bucket=bucket, Key=storage_ref, Body=conteúdo, ContentType=content_type)
+        client.put_object(
+            Bucket=bucket,
+            Key=storage_ref,
+            Body=conteúdo,
+            ContentType=content_type,
+            ContentLength=len(conteúdo),
+        )
         return storage_ref
     if provider == "blob":
         container = getattr(settings, "BLOB_CONTAINER_NAME", None)
@@ -141,6 +165,27 @@ def salvar_arquivo_externo(storage_ref: str, conteúdo: bytes, content_type: str
         blob.upload_blob(conteúdo, overwrite=True, content_type=content_type)
         return storage_ref
     return salvar_arquivo_local(storage_ref, conteúdo)
+
+
+def excluir_arquivo_externo(storage_ref: str) -> None:
+    """Exclui um arquivo do provedor de armazenamento configurado."""
+    if not storage_ref:
+        return
+
+    provider = _provider()
+    if provider == "s3":
+        bucket = getattr(settings, "S3_BUCKET_NAME", None)
+        if not bucket:
+            raise HTTPException(status_code=500, detail="S3_BUCKET_NAME ausente")
+        client = _s3_client()
+        client.delete_object(Bucket=bucket, Key=storage_ref)
+    elif provider == "blob":
+        # A lógica para Azure Blob Storage seria adicionada aqui se necessário
+        pass
+    else:  # local
+        caminho = BASE_UPLOAD_DIR / storage_ref
+        if caminho.is_file():
+            caminho.unlink()
 
 
 def gerar_token_download(cadastro_id: int, tipo: str, storage_ref: str) -> str:

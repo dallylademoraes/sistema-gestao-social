@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 import base64
 import csv
 import io
+import logging
 import os
 import re
 import shutil
@@ -37,6 +38,7 @@ from app.services.arquivos import (
     salvar_arquivo_externo,
     gerar_url_assinada_download,
     verificar_token_download,
+    excluir_arquivo_externo,
     responder_download,
     header_content_disposition_attachment,
 )
@@ -51,6 +53,7 @@ from app.services.sheets_cadastros import (
 )
 
 router = APIRouter(prefix="/cadastros", tags=["cadastros"])
+logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -779,7 +782,7 @@ def exportar_cadastros_xlsx(
         ])
 
     output = io.BytesIO()
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True, 'remove_timezone': True})
     ws = workbook.add_worksheet('Cadastros')
     for r, row in enumerate(linhas):
         for c, cell in enumerate(row):
@@ -912,18 +915,20 @@ def criar(body: CadastroCreate, request: Request, db: Session = Depends(get_db),
         c = criar_cadastro_sheets(c)
         try:
             _gerar_pdfs_termos_e_anexar(c, png)
-        except Exception:
+        except Exception as exc:
+            logger.exception("Falha ao gerar/anexar termos em PDF para cadastro %s", c.id)
             excluir_cadastro_sheets(c.id)
-            raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.")
+            raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.") from exc
         c = atualizar_cadastro_sheets(c)
     else:
         db.add(c)
         db.flush()
         try:
             _gerar_pdfs_termos_e_anexar(c, png)
-        except Exception:
+        except Exception as exc:
+            logger.exception("Falha ao gerar/anexar termos em PDF para cadastro %s", c.id)
             db.rollback()
-            raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.")
+            raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.") from exc
         db.commit()
         db.refresh(c)
     registrar_auditoria(
@@ -1060,9 +1065,10 @@ def assinar_cadastro(
     png = _decode_assinatura_png(body.assinatura_base64)
     try:
         _gerar_pdfs_termos_e_anexar(c, png)
-    except Exception:
+    except Exception as exc:
+        logger.exception("Falha ao gerar/anexar termos em PDF para cadastro %s", c.id)
         db.rollback()
-        raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.")
+        raise HTTPException(status_code=500, detail="Não foi possível gerar os termos em PDF. Tente novamente.") from exc
     if sheets_enabled():
         c = atualizar_cadastro_sheets(c)
     else:
@@ -1111,8 +1117,23 @@ def excluir(id: int, request: Request, db: Session = Depends(get_db),
             atual: Usuario = Depends(requer_perfil("coordenadora"))):
     c = _buscar_cadastro(db, id)
     if not c:
-        raise HTTPException(status_code=404, detail="Nao encontrado")
+        raise HTTPException(status_code=404, detail="Não encontrado")
+
+    # 1. Coletar referências de todos os arquivos associados
+    arquivos_para_excluir = [
+        c.foto_url,
+        c.comprovante_residencia_url,
+        c.documento_pessoal_url,
+        c.termo_imagem_url,
+        c.termo_lgpd_url,
+    ]
+
     cadastro_id = c.id
+    # Exclui os arquivos do storage externo (B2, S3, local) antes de remover o registro.
+    # Isso precisa acontecer tanto no modo database quanto no modo Google Sheets.
+    for ref in arquivos_para_excluir:
+        excluir_arquivo_externo(ref)
+
     if sheets_enabled():
         excluir_cadastro_sheets(cadastro_id)
     else:

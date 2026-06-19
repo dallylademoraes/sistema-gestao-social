@@ -1,4 +1,5 @@
-import { Navigate, NavLink, Outlet } from 'react-router-dom'
+import { useState } from 'react'
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
 import logoAsap from '../assets/ASAP_icon_hd.png'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../hooks/useTheme'
@@ -17,20 +18,32 @@ const linkStyle = (ativo) => ({
 export default function Layout() {
   const { usuario, logout, carregando } = useAuth()
   const { isDark, toggleTheme } = useTheme()
+  const location = useLocation()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const podeCriarOuEditarCadastro = ['coordenadora', 'assistente'].includes(usuario?.perfil)
   const podeGerenciarUsuarios = usuario?.perfil === 'coordenadora'
 
   if (carregando) return null
   if (!usuario) return <Navigate to="/login" />
+  if (usuario.precisa_trocar_senha && location.pathname !== '/trocar-senha') {
+    return <Navigate to="/trocar-senha" replace />
+  }
+
+  const closeSidebar = () => setSidebarOpen(false)
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <aside style={{ width: 232, background: 'var(--surface-elevated)', borderRight: '1px solid var(--border)', padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '2rem' }}>
-          <div style={{ width: 64, height: 40, borderRadius: 8, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img src={`${logoAsap}?t=${Date.now()}`} alt="ASAP" style={{ width: '90%', height: '90%', objectFit: 'contain', display: 'block' }} />
+    <div style={{ display: 'flex', minHeight: '100vh', position: 'relative' }}>
+      <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={closeSidebar} />
+      
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 64, height: 40, borderRadius: 8, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img src={`${logoAsap}?t=${Date.now()}`} alt="ASAP" style={{ width: '90%', height: '90%', objectFit: 'contain', display: 'block' }} />
+            </div>
+            <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-main)' }}>Cadastros</span>
           </div>
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-main)' }}>Cadastros</span>
+          <button className="mobile-menu-btn" style={{ margin: 0, padding: '4px 8px' }} onClick={closeSidebar}>✕</button>
         </div>
 
         <nav style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -39,14 +52,15 @@ export default function Layout() {
               Operação
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <NavLink to="/" end style={({ isActive }) => linkStyle(isActive)}>Painel</NavLink>
-              <NavLink to="/cadastros" style={({ isActive }) => linkStyle(isActive)}>Cadastros</NavLink>
+              <NavLink to="/" end style={({ isActive }) => linkStyle(isActive)} onClick={closeSidebar}>Painel</NavLink>
+              <NavLink to="/cadastros" style={({ isActive }) => linkStyle(isActive)} onClick={closeSidebar}>Cadastros</NavLink>
               {podeCriarOuEditarCadastro && (
                 <>
-                  <NavLink to="/cadastros/novo" style={({ isActive }) => linkStyle(isActive)}>Novo cadastro</NavLink>
-                  <NavLink to="/assinaturas-pendentes" style={({ isActive }) => linkStyle(isActive)}>Assinaturas pendentes</NavLink>
+                  <NavLink to="/cadastros/novo" style={({ isActive }) => linkStyle(isActive)} onClick={closeSidebar}>Novo cadastro</NavLink>
+                  <NavLink to="/assinaturas-pendentes" style={({ isActive }) => linkStyle(isActive)} onClick={closeSidebar}>Assinaturas pendentes</NavLink>
                 </>
               )}
+              <NavLink to="/faq" style={({ isActive }) => linkStyle(isActive)} onClick={closeSidebar}>Ajuda / FAQ</NavLink>
             </div>
           </div>
 
@@ -56,7 +70,7 @@ export default function Layout() {
                 Administração
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <NavLink to="/usuarios" style={({ isActive }) => linkStyle(isActive)}>Usuários</NavLink>
+                <NavLink to="/usuarios" style={({ isActive }) => linkStyle(isActive)} onClick={closeSidebar}>Usuários</NavLink>
               </div>
             </div>
           )}
@@ -84,7 +98,10 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
+      <main className="main-content">
+        <button className="mobile-menu-btn" onClick={() => setSidebarOpen(true)}>
+          ☰ Menu
+        </button>
         <Outlet />
       </main>
     </div>

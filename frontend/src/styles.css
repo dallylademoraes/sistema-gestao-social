@@ -114,6 +114,16 @@ h6 {
   align-items: center;
   justify-content: center;
   padding: 32px 18px;
+  background: var(--bg-page);
+}
+
+.auth-page--decorated {
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-welcome h1 {
+  color: var(--text-main);
 }
 
 .auth-card {
@@ -316,7 +326,7 @@ h6 {
 
 .centered-form-shell {
   width: 100%;
-  max-width: 860px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
@@ -535,6 +545,47 @@ h6 {
   white-space: nowrap;
 }
 
+.sidebar {
+  width: 232px;
+  background: var(--surface-elevated);
+  border-right: 1px solid var(--border);
+  padding: 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease;
+  z-index: 40;
+}
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 30;
+  backdrop-filter: blur(2px);
+}
+
+.mobile-menu-btn {
+  display: none;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  align-items: center;
+  gap: 8px;
+}
+
+.main-content {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
 @media (max-width: 900px) {
   .painel-charts-grid {
     grid-template-columns: 1fr;
@@ -542,6 +593,30 @@ h6 {
 
   .chart-card--wide {
     grid-column: auto;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay.open {
+    display: block;
+  }
+
+  .mobile-menu-btn {
+    display: inline-flex;
+  }
+
+  .main-content {
+    padding: 1rem;
   }
 }
 
