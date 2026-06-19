@@ -54,10 +54,8 @@ export default function Login() {
         setErro(err.response?.data?.detail || 'Muitas tentativas. Tente novamente mais tarde.')
       } else if (err.response?.status === 401) {
         setErro('E-mail ou senha incorretos.')
-      } else if (err.code === 'ECONNABORTED') {
-        setErro('O servidor demorou para responder. Reinicie o backend e tente novamente.')
-      } else if (!err.response) {
-        setErro('Não foi possível conectar ao servidor. Verifique se o backend está ligado.')
+      } else if (err.code === 'ECONNABORTED' || !err.response) {
+        setErro('O servidor está iniciando. Aguarde alguns segundos e tente novamente.')
       } else {
         setErro(err.response?.data?.detail || 'Não foi possível entrar agora.')
       }
