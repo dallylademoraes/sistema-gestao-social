@@ -115,8 +115,10 @@ def _call_apps_script(action: str, payload: Optional[dict[str, Any]] = None) -> 
             "token": settings.GOOGLE_APPS_SCRIPT_TOKEN,
             "action": action,
             "payload": {"sheet": "usuarios", **(payload or {})},
-        }
+        },
+        default=str  
     ).encode("utf-8")
+    
     req = request.Request(
         settings.GOOGLE_APPS_SCRIPT_URL,
         data=body,
